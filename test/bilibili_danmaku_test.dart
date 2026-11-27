@@ -47,7 +47,7 @@ void main() {
       inner.add(encodePacket(5, utf8.encode('{"cmd":"A"}')));
       inner.add(encodePacket(5, utf8.encode('{"cmd":"B"}')));
       final compressed = Uint8List.fromList(
-        const ZLibEncoder().convert(inner.toBytes()),
+        ZLibEncoder().convert(inner.toBytes()),
       );
 
       final outer = encodePacket(5, compressed);

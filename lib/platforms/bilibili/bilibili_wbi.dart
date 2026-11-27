@@ -48,14 +48,15 @@ class WbiSigner {
 
   /// 生成带 wts 与 w_rid 的完整 query。
   Future<String> sign(Map<String, String> params) async {
-    final keys = await keys();
-    if (keys.imgKey.isEmpty || keys.subKey.isEmpty) {
+    // 注意：不能把局部变量命名成 keys，否则会遮蔽同名方法并在声明前被引用。
+    final pair = await keys();
+    if (pair.imgKey.isEmpty || pair.subKey.isEmpty) {
       throw const WbiException('WBI key 为空，无法签名');
     }
     return wbiSignedQuery(
       params,
-      keys.imgKey,
-      keys.subKey,
+      pair.imgKey,
+      pair.subKey,
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
     );
   }

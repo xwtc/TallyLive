@@ -5,7 +5,6 @@ import 'dart:typed_data';
 
 import 'package:tallylive/core/danmaku.dart';
 import 'package:tallylive/platforms/bilibili/bilibili_client.dart';
-import 'package:tallylive/platforms/bilibili/bilibili_wbi.dart';
 
 /// B 站弹幕客户端。
 ///
@@ -436,7 +435,8 @@ List<DanmakuPacket> decodePackets(Uint8List data, int depth) {
 
 Uint8List? _inflate(Uint8List data) {
   try {
-    return Uint8List.fromList(const ZLibDecoder().convert(data));
+    // ZLibDecoder 的构造不是 const，这里不能加 const。
+    return Uint8List.fromList(ZLibDecoder().convert(data));
   } catch (_) {
     return null;
   }
