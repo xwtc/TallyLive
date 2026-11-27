@@ -87,20 +87,22 @@ class BilibiliClient implements PlatformClient {
     final first = await _fetchPlayInfo(info.roomId, null);
     final acceptQn = first.acceptQn;
 
+    // 线路 = playinfo 里 url_info 的不同 host。用第一次响应的 host 顺序作为规范顺序，
+    // 这样各档位的线路顺序一致，UI 切换时不会错位。
+    final lines = first.lines;
+
     // 按前端展示的档位顺序挑；每个档位单独请求（接口一次只给一个 qn）。
     final variants = <StreamVariant>[];
     for (final qn in _preferredQnOrder) {
       if (!acceptQn.contains(qn)) continue;
       try {
         final detail = await _fetchPlayInfo(info.roomId, qn);
-        final hls = detail.hlsUrls;
-        if (hls.isEmpty) continue;
+        if (detail.urls.isEmpty) continue;
         variants.add(StreamVariant(
           id: qn.toString(),
           label: detail.qnDesc[qn] ?? _qnLabel(qn),
-          url: hls.first,
           format: 'hls',
-          urls: hls,
+          urls: detail.urls,
         ));
       } catch (_) {
         // 单个档位失败不影响其它档位，与 Go 版一致。
@@ -109,20 +111,16 @@ class BilibiliClient implements PlatformClient {
     }
 
     // 一个都没拿到时退回第一次请求里的地址（通常是默认档）。
-    if (variants.isEmpty) {
-      final fallback = first.hlsUrls;
-      if (fallback.isNotEmpty) {
-        variants.add(StreamVariant(
-          id: first.currentQn.toString(),
-          label: first.qnDesc[first.currentQn] ?? '默认',
-          url: fallback.first,
-          format: 'hls',
-          urls: fallback,
-        ));
-      }
+    if (variants.isEmpty && first.urls.isNotEmpty) {
+      variants.add(StreamVariant(
+        id: first.currentQn.toString(),
+        label: first.qnDesc[first.currentQn] ?? '默认',
+        format: 'hls',
+        urls: first.urls,
+      ));
     }
 
-    return StreamInfoResult(room: info, variants: variants);
+    return StreamInfoResult(room: info, lines: lines, variants: variants);
   }
 
   /// 请求一次 getRoomPlayInfo。qn 为 null 表示不指定。
@@ -158,8 +156,11 @@ class BilibiliClient implements PlatformClient {
       qnDesc[_asInt(entry['qn'])] = _asString(entry['desc']);
     }
 
-    // 收集所有 HLS 地址：protocol_name 为 http_hls，或地址含 .m3u8。
-    final hlsUrls = <String>[];
+    // 收集 HLS 地址，并按 host 归到不同线路：
+    // protocol_name 为 http_hls，或地址含 .m3u8 都算 HLS。
+    final urls = <StreamUrl>[];
+    final lineOrder = <String>[];
+    final seenLine = <String>{};
     final acceptQn = <int>{};
 
     for (final streamItem in _asList(playurl['stream'])) {
@@ -184,8 +185,9 @@ class BilibiliClient implements PlatformClient {
           // 顺序写反会得到一个以 "/" 开头的非法 URL。
           for (final urlInfoItem in _asList(codec['url_info'])) {
             final urlInfo = _asMap(urlInfoItem);
+            final host = _asString(urlInfo['host']);
             final fullUrl = joinUrl(
-              _asString(urlInfo['host']),
+              host,
               baseUrl,
               _asString(urlInfo['extra']),
             );
@@ -194,19 +196,30 @@ class BilibiliClient implements PlatformClient {
             final isHls = protocolName.contains('hls') ||
                 formatName == 'ts' ||
                 fullUrl.contains('.m3u8');
-            if (isHls && !hlsUrls.contains(fullUrl)) {
-              hlsUrls.add(fullUrl);
-            }
+            if (!isHls) continue;
+
+            // 同一条线路（host）只保留一条地址，避免重复。
+            if (!seenLine.add(host)) continue;
+            lineOrder.add(host);
+            urls.add(StreamUrl(lineId: host, url: fullUrl));
           }
         }
       }
     }
 
+    // 线路展示名用「线路N」：B 站的 host 形如 d1--cn-gotcha104.bilivideo.com，
+    // 直接展示对用户没有意义，只用于内部区分。
+    final lines = <StreamLine>[
+      for (var i = 0; i < lineOrder.length; i++)
+        StreamLine(id: lineOrder[i], label: '线路${i + 1}'),
+    ];
+
     return _PlayInfo(
       currentQn: _asInt(playurl['current_qn']),
       qnDesc: qnDesc,
       acceptQn: acceptQn.toList(),
-      hlsUrls: hlsUrls,
+      urls: urls,
+      lines: lines,
     );
   }
 
@@ -228,13 +241,19 @@ class _PlayInfo {
     required this.currentQn,
     required this.qnDesc,
     required this.acceptQn,
-    required this.hlsUrls,
+    required this.urls,
+    required this.lines,
   });
 
   final int currentQn;
   final Map<int, String> qnDesc;
   final List<int> acceptQn;
-  final List<String> hlsUrls;
+
+  /// 各线路地址（顺序与 [lines] 一致）。
+  final List<StreamUrl> urls;
+
+  /// 线路列表。
+  final List<StreamLine> lines;
 }
 
 class BilibiliApiException implements Exception {

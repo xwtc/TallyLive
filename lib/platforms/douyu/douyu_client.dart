@@ -157,46 +157,58 @@ class DouyuClient implements PlatformClient {
       return StreamInfoResult(room: room, variants: const []);
     }
 
-    // 第一次不指定档位：拿到清晰度列表 + 默认线路下的地址。
+    // 第一次不指定档位：拿到清晰度列表 + 线路列表 + 默认线路下的地址。
     final first = await _requestPlayData(room.roomId, -1, '');
     final rates = _parsePlayQualities(first.data);
-    final lines = _parseCdns(first.data);
-    final defaultCdn = lines.isNotEmpty ? lines.first.id : '';
+    final allLines = _parseCdns(first.data);
+    final defaultRate = _asInt(first.data['rate']);
 
+    // 每个档位对每条线路各请求一次，得到可切换的完整线路表。
+    // 请求数 = 档位数 × 线路数，两个都设上限，避免把上游打毛。
+    final lines = allLines.take(_maxLinesPerVariant).toList();
     final variants = <StreamVariant>[];
     final seenLabels = <String>{};
 
-    // 默认档位先放进列表（就是第一次请求拿到的地址，避免重复请求）。
-    for (final rate in rates) {
-      try {
-        // 默认档位复用第一次请求的结果；其余档位单独请求。
-        final data = rate.rate == _asInt(first.data['rate'])
-            ? first.data
-            : (await _requestPlayData(room.roomId, rate.rate, defaultCdn)).data;
+    for (final rate in rates.take(_maxRates)) {
+      final urls = <StreamUrl>[];
+      for (final line in lines) {
+        try {
+          // 默认档位 + 默认线路可以直接复用第一次请求的结果。
+          final reuseFirst = rate.rate == defaultRate &&
+              line.id == (lines.isNotEmpty ? lines.first.id : '');
+          final data = reuseFirst
+              ? first.data
+              : (await _requestPlayData(room.roomId, rate.rate, line.id)).data;
 
-        final urls = <String>[];
-        final primary = _parsePlayUrl(data);
-        if (primary.isNotEmpty) urls.add(primary);
-        if (urls.isEmpty) continue;
-
-        final label = rate.name.isEmpty ? '默认' : rate.name;
-        if (!seenLabels.add(label)) continue;
-
-        variants.add(StreamVariant(
-          id: rate.rate.toString(),
-          label: label,
-          url: urls.first,
-          format: douyuFormatOf(urls.first),
-          urls: urls,
-        ));
-      } catch (_) {
-        // 单档失败跳过，不影响其它档位。
-        continue;
+          final url = _parsePlayUrl(data);
+          if (url.isEmpty) continue;
+          urls.add(StreamUrl(lineId: line.id, url: url));
+        } catch (_) {
+          // 某条线路失败不影响其它线路。
+          continue;
+        }
       }
+      if (urls.isEmpty) continue;
+
+      final label = rate.name.isEmpty ? '默认' : rate.name;
+      if (!seenLabels.add(label)) continue;
+
+      variants.add(StreamVariant(
+        id: rate.rate.toString(),
+        label: label,
+        format: douyuFormatOf(urls.first.url),
+        urls: urls,
+      ));
     }
 
-    return StreamInfoResult(room: room, variants: variants);
+    return StreamInfoResult(room: room, lines: lines, variants: variants);
   }
+
+  /// 每个档位最多请求几条线路（信号源质量差异不大，3 条足够）。
+  static const int _maxLinesPerVariant = 3;
+
+  /// 最多保留几个清晰度档位。
+  static const int _maxRates = 5;
 
   /// 请求一次 getH5PlayV1。
   ///
@@ -365,14 +377,17 @@ class DouyuClient implements PlatformClient {
 
   /// 解析线路列表：cdnsWithName 优先，rtmp_cdn 未出现时插到最前，
   /// scdn* 线路排到最后（与 Go 版 parseCDNs 一致）。
-  List<_Line> _parseCdns(Map<String, dynamic> data) {
-    final result = <_Line>[];
+  List<StreamLine> _parseCdns(Map<String, dynamic> data) {
+    final result = <StreamLine>[];
     final seen = <String>{};
 
     void add(String id, String label) {
       final trimmed = id.trim();
       if (trimmed.isEmpty || !seen.add(trimmed)) return;
-      result.add(_Line(id: trimmed, label: label.trim().isEmpty ? trimmed : label.trim()));
+      result.add(StreamLine(
+        id: trimmed,
+        label: label.trim().isEmpty ? trimmed : label.trim(),
+      ));
     }
 
     for (final item in _asList(data['cdnsWithName'])) {
@@ -382,10 +397,10 @@ class DouyuClient implements PlatformClient {
 
     final current = _asString(data['rtmp_cdn']).trim();
     if (current.isNotEmpty && !seen.contains(current)) {
-      result.insert(0, _Line(id: current, label: current));
+      result.insert(0, StreamLine(id: current, label: current));
     }
     if (result.isEmpty) {
-      result.add(const _Line(id: '', label: '默认'));
+      result.add(const StreamLine(id: '', label: '默认'));
     }
 
     result.sort((a, b) {
@@ -577,12 +592,6 @@ class _RateVariant {
   final String name;
   final int rate;
   final int bit;
-}
-
-class _Line {
-  const _Line({required this.id, required this.label});
-  final String id;
-  final String label;
 }
 
 class DouyuException implements Exception {

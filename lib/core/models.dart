@@ -55,15 +55,34 @@ class RoomInfo {
   final bool isLive;
 }
 
+/// 一条线路（CDN）。各平台叫法不同：斗鱼是 cdn 标识、B 站是 host。
+class StreamLine {
+  const StreamLine({required this.id, required this.label});
+
+  /// 平台内部线路标识（斗鱼是 cdn 名，B 站是 host）。
+  final String id;
+
+  /// 展示名，如「线路1」「cn-gotcha104」。
+  final String label;
+}
+
+/// 某个清晰度在某个线路下的地址。
+class StreamUrl {
+  const StreamUrl({required this.lineId, required this.url});
+
+  /// 对应 [StreamLine.id]；空串表示平台的默认线路。
+  final String lineId;
+  final String url;
+}
+
 /// 一个清晰度档位。
 ///
-/// [urls] 保留同一档位的多条线路（多 CDN），便于失败时自动切换；
-/// [url] 是首选地址，等于 `urls.first`。
+/// 同一档位在不同线路上有不同的地址，所以 [urls] 是「线路 → 地址」的列表，
+/// 顺序与 [StreamInfoResult.lines] 一致，便于 UI 直接按线路切换。
 class StreamVariant {
   const StreamVariant({
     required this.id,
     required this.label,
-    required this.url,
     required this.format,
     required this.urls,
   });
@@ -73,21 +92,52 @@ class StreamVariant {
 
   /// 展示用档位名，如「原画」「蓝光」。
   final String label;
-  final String url;
 
   /// `hls` 或 `flv`，决定播放器需要哪种解封装。
   final String format;
 
-  /// 同档位的全部地址。
-  final List<String> urls;
+  /// 各线路地址；至少一条。
+  final List<StreamUrl> urls;
+
+  /// 首选地址（第一条线路）。
+  String get url => urls.isEmpty ? '' : urls.first.url;
+
+  bool get isEmpty => urls.isEmpty;
+
+  /// 按线路取地址；该线路没有地址时回退到第一条。
+  String urlForLine(String? lineId) {
+    if (lineId == null || lineId.isEmpty) return url;
+    for (final item in urls) {
+      if (item.lineId == lineId) return item.url;
+    }
+    return url;
+  }
+
+  /// 该档位实际覆盖到的线路 id 集合。
+  Set<String> get availableLineIds => urls.map((e) => e.lineId).toSet();
 }
 
-/// 一次取流的结果：房间信息 + 可用档位。
+/// 一次取流的结果：房间信息 + 可用线路 + 可用档位。
 class StreamInfoResult {
-  const StreamInfoResult({required this.room, required this.variants});
+  const StreamInfoResult({
+    required this.room,
+    required this.variants,
+    this.lines = const [],
+  });
 
   final RoomInfo room;
+  final List<StreamLine> lines;
   final List<StreamVariant> variants;
 
   bool get playable => variants.isNotEmpty;
+
+  /// 只保留在至少一个档位里真实存在地址的线路。
+  List<StreamLine> get usableLines {
+    final used = <String>{};
+    for (final variant in variants) {
+      used.addAll(variant.availableLineIds);
+    }
+    final filtered = lines.where((line) => used.contains(line.id)).toList();
+    return filtered.isEmpty ? lines : filtered;
+  }
 }

@@ -17,10 +17,12 @@ class PlayerPage extends StatefulWidget {
     super.key,
     required this.room,
     required this.variants,
+    this.lines = const [],
   });
 
   final RoomInfo room;
   final List<StreamVariant> variants;
+  final List<StreamLine> lines;
 
   @override
   State<PlayerPage> createState() => _PlayerPageState();
@@ -31,12 +33,15 @@ class _PlayerPageState extends State<PlayerPage> {
   late final VideoController _controller;
 
   late StreamVariant _variant;
+  String? _lineId;
   String? _error;
 
   @override
   void initState() {
     super.initState();
     _variant = widget.variants.first;
+    // 默认用第一条可用线路（StreamInfoResult.usableLines 已过滤掉无地址的）。
+    _lineId = widget.lines.isNotEmpty ? widget.lines.first.id : null;
 
     _player = Player();
     _controller = VideoController(_player);
@@ -46,14 +51,20 @@ class _PlayerPageState extends State<PlayerPage> {
       setState(() => _error = message);
     });
 
-    _openVariant(_variant);
+    _openCurrent();
   }
 
-  Future<void> _openVariant(StreamVariant variant) async {
+  /// 打开「当前档位 + 当前线路」的组合。
+  Future<void> _openCurrent() async {
+    final url = _variant.urlForLine(_lineId);
+    if (url.isEmpty) {
+      setState(() => _error = '该线路没有可用地址');
+      return;
+    }
     setState(() => _error = null);
     await _player.open(
       Media(
-        variant.url,
+        url,
         // 各平台 CDN 对 Referer/UA 的要求不同：
         // B 站 HLS 直连通常不需要 Referer，带上更稳妥；
         // 斗鱼 FLV 需要站点 Referer，否则边缘节点可能 403。
@@ -176,48 +187,122 @@ class _PlayerPageState extends State<PlayerPage> {
               ),
             ),
           ),
-          if (widget.variants.length > 1)
-            PopupMenuButton<StreamVariant>(
-              tooltip: '清晰度',
-              color: TallyColors.raised,
-              initialValue: _variant,
-              onSelected: (variant) {
-                setState(() => _variant = variant);
-                _openVariant(variant);
-              },
-              itemBuilder: (context) => widget.variants
-                  .map(
-                    (variant) => PopupMenuItem<StreamVariant>(
-                      value: variant,
-                      child: Text(
-                        variant.label,
-                        style: const TextStyle(color: TallyColors.textPrimary),
-                      ),
+          // 线路选择：只在有真实多线路时显示。
+          if (widget.lines.length > 1) _buildLineMenu(),
+          // 清晰度选择
+          if (widget.variants.length > 1) _buildQualityMenu(),
+        ],
+      ),
+    );
+  }
+
+  /// 线路（CDN）下拉。切线路只会换地址，不会重新取流。
+  Widget _buildLineMenu() {
+    final current = widget.lines.firstWhere(
+      (line) => line.id == _lineId,
+      orElse: () => widget.lines.first,
+    );
+    return PopupMenuButton<String>(
+      tooltip: '线路',
+      color: TallyColors.raised,
+      initialValue: current.id,
+      onSelected: (lineId) {
+        if (lineId == _lineId) return;
+        setState(() => _lineId = lineId);
+        _openCurrent();
+      },
+      itemBuilder: (context) => widget.lines
+          .map(
+            (line) => PopupMenuItem<String>(
+              value: line.id,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      line.label,
+                      style: const TextStyle(color: TallyColors.textPrimary),
                     ),
-                  )
-                  .toList(),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _variant.label,
-                      style: const TextStyle(
-                        color: TallyColors.signalBlue,
-                        fontSize: 13,
-                      ),
+                  ),
+                  // 该线路在多少档位里可用，便于判断覆盖度。
+                  Text(
+                    '${widget.variants.where((v) => v.availableLineIds.contains(line.id)).length}档',
+                    style: const TextStyle(
+                      color: TallyColors.textTertiary,
+                      fontSize: 11,
                     ),
-                    const Icon(
-                      Icons.expand_more,
-                      size: 16,
-                      color: TallyColors.signalBlue,
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-        ],
+          )
+          .toList(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              current.label,
+              style: const TextStyle(
+                color: TallyColors.textSecondary,
+                fontSize: 13,
+              ),
+            ),
+            const Icon(
+              Icons.expand_more,
+              size: 16,
+              color: TallyColors.textSecondary,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 清晰度下拉。
+  Widget _buildQualityMenu() {
+    return PopupMenuButton<StreamVariant>(
+      tooltip: '清晰度',
+      color: TallyColors.raised,
+      initialValue: _variant,
+      onSelected: (variant) {
+        if (variant.id == _variant.id) return;
+        setState(() {
+          _variant = variant;
+          // 切档位后该档位可能没有当前线路，交给 urlForLine 回退。
+        });
+        _openCurrent();
+      },
+      itemBuilder: (context) => widget.variants
+          .map(
+            (variant) => PopupMenuItem<StreamVariant>(
+              value: variant,
+              child: Text(
+                variant.label,
+                style: const TextStyle(color: TallyColors.textPrimary),
+              ),
+            ),
+          )
+          .toList(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _variant.label,
+              style: const TextStyle(
+                color: TallyColors.signalBlue,
+                fontSize: 13,
+              ),
+            ),
+            const Icon(
+              Icons.expand_more,
+              size: 16,
+              color: TallyColors.signalBlue,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -266,7 +351,10 @@ class _PlayerPageState extends State<PlayerPage> {
             border: Border.all(color: TallyColors.hairline),
           ),
           child: Text(
-            '当前档位：${_variant.label}（${_variant.format.toUpperCase()}）\n'
+            '当前：${_variant.label}（${_variant.format.toUpperCase()}）'
+            '${widget.lines.length > 1 ? ' · 线路 ${_currentLineLabel()}' : ''}\n'
+            '可切换 ${widget.variants.length} 个清晰度'
+            '${widget.lines.length > 1 ? '、${widget.lines.length} 条线路' : ''}。\n'
             '弹幕将在下一阶段接入。',
             style: const TextStyle(
               color: TallyColors.textSecondary,
@@ -277,6 +365,13 @@ class _PlayerPageState extends State<PlayerPage> {
         ),
       ],
     );
+  }
+
+  String _currentLineLabel() {
+    for (final line in widget.lines) {
+      if (line.id == _lineId) return line.label;
+    }
+    return widget.lines.isNotEmpty ? widget.lines.first.label : '';
   }
 
   Widget _chip(String text) {

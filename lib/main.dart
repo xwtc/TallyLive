@@ -100,6 +100,7 @@ class _HomePageState extends State<HomePage> {
           builder: (_) => PlayerPage(
             room: info.room,
             variants: info.variants,
+            lines: info.usableLines,
           ),
         ),
       );
