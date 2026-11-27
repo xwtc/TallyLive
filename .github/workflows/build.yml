@@ -61,19 +61,12 @@ jobs:
         shell: pwsh
         run: flutter build windows --release
 
-      - name: Package Windows
-        shell: pwsh
-        run: |
-          $src = "build\windows\x64\runner\Release"
-          if (-not (Test-Path $src)) { Write-Error "$src not found"; exit 1 }
-          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          Compress-Archive -Path "$src\*" -DestinationPath "artifacts\TallyLive-windows-x64.zip" -Force
-          Get-ChildItem artifacts | Format-Table Name, Length
-
+      # 不再自己 Compress-Archive：upload-artifact 上传时本身就强制打包成 zip，
+      # 再包一层会导致下载后需要解压两次。直接上传 Release 目录内容即可。
       - uses: actions/upload-artifact@v4
         with:
           name: TallyLive-windows
-          path: artifacts/*.zip
+          path: build/windows/x64/runner/Release/**
           if-no-files-found: error
 
   android:
@@ -182,7 +175,11 @@ jobs:
       - name: Collect files
         run: |
           mkdir -p out
-          find artifacts -type f \( -name '*.zip' -o -name '*.apk' -o -name '*.ipa' \) -exec cp {} out/ \;
+          # Windows artifact 现在是 Release 目录的散文件，发布时打成 zip。
+          if [ -d artifacts/TallyLive-windows ]; then
+            (cd artifacts/TallyLive-windows && zip -qry ../../out/TallyLive-windows-x64.zip .)
+          fi
+          find artifacts -type f \( -name '*.apk' -o -name '*.ipa' \) -exec cp {} out/ \;
           ls -lh out
 
       - uses: softprops/action-gh-release@v2
