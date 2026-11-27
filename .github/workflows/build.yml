@@ -1,0 +1,184 @@
+name: Flutter Build
+
+# TallyLive（Flutter 版）三端构建：Windows / Android / iOS。
+#
+# 产物：
+#   - Windows: TallyLive-windows-x64.zip
+#   - Android: TallyLive-android.apk（debug keystore 签名，可直接装）
+#   - iOS:     TallyLive-ios-unsigned.ipa（未签名，用 LiveContainer 安装）
+#
+# 为什么 iOS 不签名：LiveContainer 在 JIT 可用时完全绕过 codesign，
+# 无 JIT 时用 LiveContainer 自己的证书重签，所以未签名 IPA 正好可用，
+# 不需要 Apple 开发者账号 / UDID / 描述文件。
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: flutter-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_CHANNEL: stable
+  APP_ORG: com.tally
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+
+      - name: Bootstrap platform folders
+        shell: pwsh
+        run: |
+          # lib/ 与 pubspec.yaml 由仓库提供；android/ios/windows 的平台脚手架
+          # 由 flutter create 生成（不覆盖已有源码）。
+          flutter create . --platforms=windows,android,ios --org $env:APP_ORG --project-name tallylive
+          flutter pub get
+
+      - name: Analyze
+        shell: pwsh
+        run: flutter analyze --no-fatal-infos || true
+
+      - name: Build Windows
+        shell: pwsh
+        run: flutter build windows --release
+
+      - name: Package Windows
+        shell: pwsh
+        run: |
+          $src = "build\windows\x64\runner\Release"
+          if (-not (Test-Path $src)) { Write-Error "$src not found"; exit 1 }
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          Compress-Archive -Path "$src\*" -DestinationPath "artifacts\TallyLive-windows-x64.zip" -Force
+          Get-ChildItem artifacts | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TallyLive-windows
+          path: artifacts/*.zip
+          if-no-files-found: error
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+
+      - name: Bootstrap platform folders
+        run: |
+          flutter create . --platforms=windows,android,ios --org $APP_ORG --project-name tallylive
+          flutter pub get
+
+      - name: Build APK
+        run: |
+          # 未配置 release keystore 时 Flutter 会用 debug key 签名，可直接安装测试。
+          flutter build apk --release
+
+      - name: Stage artifact
+        run: |
+          mkdir -p artifacts
+          cp build/app/outputs/flutter-apk/app-release.apk artifacts/TallyLive-android.apk
+          ls -lh artifacts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TallyLive-android
+          path: artifacts/*.apk
+          if-no-files-found: error
+
+  ios:
+    name: iOS unsigned IPA
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+
+      - name: Bootstrap platform folders
+        run: |
+          flutter create . --platforms=windows,android,ios --org $APP_ORG --project-name tallylive
+          flutter pub get
+
+      - name: Pod install
+        working-directory: ios
+        run: |
+          # media_kit 在 iOS 上通过 CocoaPods 引入 libmpv 相关 framework。
+          pod repo update || true
+          pod install --repo-update || pod install
+
+      - name: Build iOS (no codesign)
+        run: |
+          flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP="build/ios/iphoneos/Runner.app"
+          test -d "$APP" || { echo "::error::$APP not found"; exit 1; }
+
+          # 剥掉签名痕迹，产出真正未签名的包（LiveContainer 会自行处理）。
+          codesign --remove-signature "$APP" 2>/dev/null || true
+          rm -rf "$APP/_CodeSignature" "$APP/embedded.mobileprovision"
+
+          rm -rf Payload unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry "TallyLive-ios-unsigned.ipa" Payload
+          rm -rf Payload
+
+          mkdir -p artifacts
+          mv "TallyLive-ios-unsigned.ipa" artifacts/
+          ls -lh artifacts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TallyLive-ios
+          path: artifacts/*.ipa
+          if-no-files-found: error
+
+  release:
+    name: Attach to release
+    needs: [windows, android, ios]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect files
+        run: |
+          mkdir -p out
+          find artifacts -type f \( -name '*.zip' -o -name '*.apk' -o -name '*.ipa' \) -exec cp {} out/ \;
+          ls -lh out
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true

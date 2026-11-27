@@ -1,0 +1,22 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+*.iml
+.idea/
+.metadata
+
+# 平台脚手架由 CI 的 `flutter create .` 生成。
+# 等到需要改原生配置（权限、Info.plist、Gradle）时再取消忽略并提交。
+/android/
+/ios/
+/windows/
+/linux/
+/macos/
+/web/
+
+# 系统
+.DS_Store
+Thumbs.db
