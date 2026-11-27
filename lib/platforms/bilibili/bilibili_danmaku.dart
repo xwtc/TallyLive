@@ -30,12 +30,20 @@ class BilibiliDanmakuClient implements DanmakuClient {
   StreamSubscription<dynamic>? _subscription;
   Timer? _heartbeat;
   Timer? _reconnectTimer;
+  Timer? _watchdog;
   bool _stopped = true;
   int _sequence = 0;
   String _roomId = '';
   int _retry = 0;
 
+  /// 连续 auth 被拒次数：用于把退避拉长，避免快速重连被上游限流。
+  int _authFailures = 0;
+
   static const Duration _heartbeatInterval = Duration(seconds: 30);
+
+  /// 超过这么久没收到任何帧就认为连接已死（B 站服务端会静默丢弃半死连接）。
+  static const Duration _readTimeout = Duration(seconds: 90);
+
   static const Duration _maxBackoff = Duration(seconds: 30);
 
   /// op 码。
@@ -72,6 +80,8 @@ class BilibiliDanmakuClient implements DanmakuClient {
     _reconnectTimer = null;
     _heartbeat?.cancel();
     _heartbeat = null;
+    _watchdog?.cancel();
+    _watchdog = null;
     await _subscription?.cancel();
     _subscription = null;
     final socket = _socket;
@@ -162,7 +172,7 @@ class BilibiliDanmakuClient implements DanmakuClient {
       try {
         socket.add(encodePacket(_opHeartbeat, utf8.encode('{}')));
       } catch (_) {
-        // 写失败说明连接已断，交给 readLoop 的错误处理
+        // 写失败说明连接已断，交给 listen 的错误处理
       }
     });
 
@@ -179,13 +189,28 @@ class BilibiliDanmakuClient implements DanmakuClient {
       cancelOnError: true,
     );
 
+    _resetWatchdog();
     if (!_connected.isClosed) _connected.add(true);
+  }
+
+  /// 每收到一帧就重置看门狗；超时视为半死连接并主动重连。
+  ///
+  /// B 站服务端有时会静默丢弃连接（TCP 不 FIN），只靠 onDone 是发现不了的，
+  /// 表现就是「一直显示已连接但再没有弹幕」。
+  void _resetWatchdog() {
+    _watchdog?.cancel();
+    _watchdog = Timer(_readTimeout, () {
+      if (_stopped) return;
+      _scheduleReconnect(const _DanmakuConnectError('读超时，连接可能已死'));
+    });
   }
 
   void _scheduleReconnect(Object error) {
     if (_stopped) return;
     _heartbeat?.cancel();
     _heartbeat = null;
+    _watchdog?.cancel();
+    _watchdog = null;
     _subscription?.cancel();
     _subscription = null;
     final socket = _socket;
@@ -195,10 +220,12 @@ class BilibiliDanmakuClient implements DanmakuClient {
     } catch (_) {}
     if (!_connected.isClosed) _connected.add(false);
 
-    _retry = (_retry + 1).clamp(1, 10).toInt();
-    // 1s, 2s, 4s ... 最多 30s
-    final shift = (_retry - 1).clamp(0, 5).toInt();
-    var delay = Duration(seconds: 1 << shift);
+    _retry = (_retry + 1).clamp(1, 12).toInt();
+    // 1s, 2s, 4s ... 最多 30s；连续 auth 失败时从更长的退避起步，避免被限流。
+    final floor = _authFailures >= 3 ? 3 : 0;
+    final shift = (_retry - 1).clamp(0, 5).toInt() + floor;
+    final seconds = 1 << shift.clamp(0, 6).toInt();
+    var delay = Duration(seconds: seconds);
     if (delay > _maxBackoff) delay = _maxBackoff;
 
     _reconnectTimer?.cancel();
@@ -210,6 +237,9 @@ class BilibiliDanmakuClient implements DanmakuClient {
   /* ------------------------------ 解包 ------------------------------ */
 
   void _handleFrame(dynamic data) {
+    // 收到任何帧都说明连接活着，重置看门狗。
+    _resetWatchdog();
+
     Uint8List? bytes;
     if (data is Uint8List) {
       bytes = data;
@@ -218,9 +248,14 @@ class BilibiliDanmakuClient implements DanmakuClient {
     }
     if (bytes == null) return;
 
-    final packets = decodePackets(bytes, 0);
-    for (final packet in packets) {
-      _handlePacket(packet);
+    try {
+      final packets = decodePackets(bytes, 0);
+      for (final packet in packets) {
+        _handlePacket(packet);
+      }
+    } catch (_) {
+      // 单帧解析失败绝不能影响连接：弹幕协议会随版本变化，
+      // 一条坏消息不应该让整条 WS 被丢掉（那会表现为反复重连）。
     }
   }
 
@@ -229,11 +264,17 @@ class BilibiliDanmakuClient implements DanmakuClient {
       case _opAuthReply:
         if (packet.body.isNotEmpty) {
           try {
-            final reply = jsonDecode(utf8.decode(packet.body));
+            final reply = jsonDecode(utf8.decode(packet.body, allowMalformed: true));
             final code = (reply is Map) ? reply['code'] : null;
-            if (code != 0 && code != null) {
-              // auth 被拒：停止重连，避免死循环刷日志
-              _stopped = true;
+            if (code != null && code != 0) {
+              // auth 被拒：不直接停止（否则圆点会一直黄），
+              // 计入失败次数后按更长的退避重连。
+              _authFailures++;
+              _scheduleReconnect(
+                _DanmakuConnectError('auth 被拒 code=$code'),
+              );
+            } else {
+              _authFailures = 0;
             }
           } catch (_) {}
         }

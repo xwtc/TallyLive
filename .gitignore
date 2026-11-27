@@ -20,3 +20,6 @@ build/
 # 系统
 .DS_Store
 Thumbs.db
+
+# 本地开发笔记（细节版，不推送到 GitHub；README 是给外人看的简略版）
+DEV-NOTES.md
