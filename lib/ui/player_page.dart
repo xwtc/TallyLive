@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -41,6 +43,10 @@ class _PlayerPageState extends State<PlayerPage> {
   String? _error;
   bool _danmakuEnabled = true;
 
+  /// 弹幕连接状态：null=该平台未接入弹幕，true/false=已连接/重连中。
+  bool? _danmakuOnline;
+  StreamSubscription<bool>? _danmakuStatusSub;
+
   @override
   void initState() {
     super.initState();
@@ -65,6 +71,11 @@ class _PlayerPageState extends State<PlayerPage> {
     final client = createDanmakuClient(widget.room.platform);
     if (client == null) return;
     _danmaku = client;
+    // 订阅连接状态：用来区分「弹幕渲染问题」和「WS 在反复重连」。
+    _danmakuStatusSub = client.connected.listen((online) {
+      if (!mounted) return;
+      setState(() => _danmakuOnline = online);
+    });
     try {
       await client.start(widget.room.roomId);
     } catch (_) {
@@ -107,6 +118,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   @override
   void dispose() {
+    _danmakuStatusSub?.cancel();
     _danmaku?.dispose();
     _danmaku = null;
     _player.dispose();
@@ -218,6 +230,23 @@ class _PlayerPageState extends State<PlayerPage> {
               ),
             ),
           ),
+          // 弹幕连接状态：仅在该平台接入了弹幕时显示。
+          // 蓝点=已连接；琥珀点=重连中（这时弹幕会断续，属网络侧而非渲染问题）。
+          if (_danmakuOnline != null)
+            Tooltip(
+              message: _danmakuOnline! ? '弹幕已连接' : '弹幕重连中',
+              child: Container(
+                width: 8,
+                height: 8,
+                margin: const EdgeInsets.symmetric(horizontal: 6),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _danmakuOnline!
+                      ? TallyColors.signalBlue
+                      : const Color(0xFFC69233),
+                ),
+              ),
+            ),
           // 弹幕开关
           IconButton(
             onPressed: () => setState(() => _danmakuEnabled = !_danmakuEnabled),

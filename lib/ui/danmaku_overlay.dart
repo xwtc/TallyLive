@@ -37,6 +37,20 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
   DanmakuController? _controller;
   StreamSubscription<DanmakuMessage>? _subscription;
 
+  /// 平滑队列。
+  ///
+  /// B 站的弹幕服务端会把约 1 秒内的消息聚合进一个压缩帧下发，
+  /// 收到一帧就把几十条同时 add 进渲染层会导致「一阵一阵」地冒出来。
+  /// 这里改成先进队列，再以固定节奏均匀吐出，视觉上才是持续流动的。
+  final List<DanmakuContentItem> _queue = [];
+  Timer? _drainTimer;
+
+  /// 基础出队间隔：60ms ≈ 16 条/秒，对应正常直播的弹幕密度。
+  static const Duration _drainInterval = Duration(milliseconds: 60);
+
+  /// 队列上限：超过就丢弃最老的，避免热门房间积压到延迟越拖越大。
+  static const int _maxQueue = 240;
+
   /// 夜间模式下的弹幕样式：字号适中、占上半屏、存活 8 秒。
   static const DanmakuOption _option = DanmakuOption(
     fontSize: 18,
@@ -62,6 +76,11 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
       _subscription?.cancel();
       _subscribe();
     }
+    if (oldWidget.enabled && !widget.enabled) {
+      // 关弹幕时清空积压，重新打开不要突然涌出一堆旧弹幕。
+      _queue.clear();
+      _stopDrain();
+    }
   }
 
   void _subscribe() {
@@ -77,13 +96,44 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
     final text = message.content.trim();
     if (text.isEmpty) return;
 
-    _controller?.addDanmaku(
+    _queue.add(
       DanmakuContentItem(
         text,
         color: _parseColor(message.color),
         type: DanmakuItemType.scroll,
       ),
     );
+    if (_queue.length > _maxQueue) {
+      _queue.removeRange(0, _queue.length - _maxQueue);
+    }
+    _ensureDrain();
+  }
+
+  void _ensureDrain() {
+    _drainTimer ??= Timer.periodic(_drainInterval, (_) => _drain());
+  }
+
+  void _stopDrain() {
+    _drainTimer?.cancel();
+    _drainTimer = null;
+  }
+
+  /// 每次 tick 出队 1~3 条：积压越多出得越快，既能追平又不会瞬间喷完。
+  void _drain() {
+    if (_queue.isEmpty) {
+      _stopDrain();
+      return;
+    }
+    final batch = _queue.length >= 60
+        ? 4
+        : _queue.length >= 24
+            ? 2
+            : 1;
+    final controller = _controller;
+    for (var i = 0; i < batch && _queue.isNotEmpty; i++) {
+      final item = _queue.removeAt(0);
+      controller?.addDanmaku(item);
+    }
   }
 
   /// '#RRGGBB' → Color；空串或非法值退回柔白。
@@ -106,6 +156,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
 
   @override
   void dispose() {
+    _stopDrain();
     _subscription?.cancel();
     super.dispose();
   }
