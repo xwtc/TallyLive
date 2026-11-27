@@ -18,6 +18,10 @@ class DanmakuOverlay extends StatefulWidget {
     required this.stream,
     this.enabled = true,
     this.showGifts = false,
+    this.fontSize = 18,
+    this.opacity = 0.95,
+    this.duration = 8,
+    this.area = 0.55,
   });
 
   /// 弹幕消息流。
@@ -28,6 +32,12 @@ class DanmakuOverlay extends StatefulWidget {
 
   /// 是否把礼物也画上去（默认关，避免遮挡画面）。
   final bool showGifts;
+
+  /// 以下四项来自设置页。
+  final double fontSize;
+  final double opacity;
+  final double duration;
+  final double area;
 
   @override
   State<DanmakuOverlay> createState() => _DanmakuOverlayState();
@@ -49,19 +59,24 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
   static const Duration _drainInterval = Duration(milliseconds: 60);
 
   /// 队列上限：超过就丢弃最老的，避免热门房间积压到延迟越拖越大。
-  static const int _maxQueue = 240;
+  /// 240 在高人气房间不够用（入队可能 100+/秒），调到 400 并配合更快的出队。
+  static const int _maxQueue = 400;
 
-  /// 夜间模式下的弹幕样式：字号适中、占上半屏、存活 8 秒。
-  static const DanmakuOption _option = DanmakuOption(
-    fontSize: 18,
-    fontWeight: 5,
-    area: 0.55,
-    duration: 8,
-    opacity: 0.95,
-    strokeWidth: 1.2,
-    safeArea: false,
-    lineHeight: 1.5,
-  );
+  /// 夜间模式下的弹幕样式：由设置页注入。
+  ///
+  /// `massiveMode: true` —— 轨道占满时叠加而不是丢弃。
+  /// 官方直播间也是这个行为，否则高人气房间会明显"少弹幕"。
+  DanmakuOption get _option => DanmakuOption(
+        fontSize: widget.fontSize,
+        fontWeight: 5,
+        area: widget.area,
+        duration: widget.duration,
+        opacity: widget.opacity,
+        strokeWidth: 1.2,
+        safeArea: false,
+        lineHeight: 1.5,
+        massiveMode: true,
+      );
 
   @override
   void initState() {
@@ -118,17 +133,22 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
     _drainTimer = null;
   }
 
-  /// 每次 tick 出队 1~3 条：积压越多出得越快，既能追平又不会瞬间喷完。
+  /// 每次 tick 出队 1~6 条：积压越多出得越快，既能追平又不会瞬间喷完。
+  ///
+  /// 上限从 4 提到 6（≈100 条/秒），否则高人气房间的入队速度远超出队速度，
+  /// 队列一满就开始丢最老的——这是「弹幕比官方少」的一个直接原因。
   void _drain() {
     if (_queue.isEmpty) {
       _stopDrain();
       return;
     }
-    final batch = _queue.length >= 60
-        ? 4
-        : _queue.length >= 24
-            ? 2
-            : 1;
+    final batch = _queue.length >= 80
+        ? 6
+        : _queue.length >= 40
+            ? 3
+            : _queue.length >= 12
+                ? 2
+                : 1;
     final controller = _controller;
     for (var i = 0; i < batch && _queue.isNotEmpty; i++) {
       final item = _queue.removeAt(0);
@@ -166,6 +186,11 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
     if (!widget.enabled) return const SizedBox.shrink();
     return IgnorePointer(
       child: DanmakuScreen(
+        // 样式变化时重建渲染层，确保新设置立即生效（重建会清空当前弹幕，
+        // 但设置页是暂停状态下调的，可以接受）。
+        key: ValueKey<String>(
+          '${widget.fontSize}-${widget.opacity}-${widget.duration}-${widget.area}',
+        ),
         createdController: (controller) => _controller = controller,
         option: _option,
       ),

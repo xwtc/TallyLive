@@ -478,15 +478,23 @@ List<DanmakuPacket> decodePackets(Uint8List data, int depth) {
     final op = view.getUint32(offset + 8, Endian.big);
 
     if (headerLen < 16) headerLen = 16;
-    if (packLen < headerLen + 1 || offset + packLen > data.length) break;
+
+    // ⚠️ 这里不能用 `packLen < headerLen + 1`：
+    // 空 body 的包（packLen == headerLen == 16）是合法的，
+    // 原来那样写会在这里 break，把**同一帧后面的所有包全部丢掉**。
+    // B 站压缩帧里常夹着空包，一旦出现在批次中间，后面几十条弹幕就没了
+    // （Go 版 DTV 有同样的 bug，所以它的弹幕也比官方少）。
+    if (packLen < headerLen || offset + packLen > data.length) break;
 
     final body = Uint8List.sublistView(data, offset + headerLen, offset + packLen);
     offset += packLen;
 
     if (ver == 2) {
-      final plain = _inflate(body);
-      if (plain != null) {
-        result.addAll(decodePackets(plain, depth + 1));
+      if (body.isNotEmpty) {
+        final plain = _inflate(body);
+        if (plain != null) {
+          result.addAll(decodePackets(plain, depth + 1));
+        }
       }
     } else if (ver == 3) {
       // brotli：我们用 protover=2，正常不会收到

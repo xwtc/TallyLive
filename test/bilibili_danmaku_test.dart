@@ -84,5 +84,37 @@ void main() {
     test('嵌套过深时停止（防畸形数据打爆栈）', () {
       expect(decodePackets(Uint8List(0), 9), isEmpty);
     });
+
+    test('空 body 的包不能截断后续包（回归：曾导致弹幕大量丢失）', () {
+      // 一个 header_len == pack_len == 16 的空包，后面跟一条正常弹幕。
+      // 旧逻辑用 `packLen < headerLen + 1` 判断，会在这里 break，
+      // 把同一帧后面的所有弹幕都丢掉。
+      final joined = BytesBuilder();
+      joined.add(encodePacket(3, const [])); // 空 body 的心跳回执
+      joined.add(encodePacket(5, utf8.encode('{"cmd":"AFTER_EMPTY"}')));
+
+      final packets = decodePackets(joined.toBytes(), 0);
+      expect(packets.length, 2);
+      expect(packets[0].body, isEmpty);
+      expect(utf8.decode(packets[1].body), '{"cmd":"AFTER_EMPTY"}');
+    });
+
+    test('zlib 批次内部夹空包时，空包之后的弹幕仍能解出', () {
+      final inner = BytesBuilder();
+      inner.add(encodePacket(3, const [])); // 空包在前
+      inner.add(encodePacket(5, utf8.encode('{"cmd":"B1"}')));
+      inner.add(encodePacket(5, utf8.encode('{"cmd":"B2"}')));
+
+      final compressed = Uint8List.fromList(ZLibEncoder().convert(inner.toBytes()));
+      final outer = encodePacket(5, compressed);
+      ByteData.view(outer.buffer).setUint16(6, 2, Endian.big); // ver=2
+
+      final packets = decodePackets(outer, 0);
+      final commands = packets
+          .map((p) => utf8.decode(p.body, allowMalformed: true))
+          .where((s) => s.isNotEmpty)
+          .toList();
+      expect(commands, containsAll(['{"cmd":"B1"}', '{"cmd":"B2"}']));
+    });
   });
 }

@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:tallylive/core/danmaku.dart';
 import 'package:tallylive/core/models.dart';
+import 'package:tallylive/core/settings.dart';
 import 'package:tallylive/platforms/danmaku_factory.dart';
 import 'package:tallylive/ui/danmaku_overlay.dart';
 import 'package:tallylive/ui/theme.dart';
@@ -41,7 +42,6 @@ class _PlayerPageState extends State<PlayerPage> {
   late StreamVariant _variant;
   String? _lineId;
   String? _error;
-  bool _danmakuEnabled = true;
 
   /// 弹幕连接状态：null=该平台未接入弹幕，true/false=已连接/重连中。
   bool? _danmakuOnline;
@@ -154,9 +154,21 @@ class _PlayerPageState extends State<PlayerPage> {
                       ),
                     ),
                     // 弹幕层：与 Video 同层，天然压在画面之上。
-                    DanmakuOverlay(
-                      stream: _danmaku?.messages ?? Stream<DanmakuMessage>.empty(),
-                      enabled: _danmakuEnabled,
+                    // 样式与开关来自设置页，改动后立即生效。
+                    ListenableBuilder(
+                      listenable: AppSettings.instance,
+                      builder: (context, _) {
+                        final settings = AppSettings.instance;
+                        return DanmakuOverlay(
+                          stream: _danmaku?.messages ??
+                              Stream<DanmakuMessage>.empty(),
+                          enabled: settings.danmakuEnabled,
+                          fontSize: settings.danmakuFontSize,
+                          opacity: settings.danmakuOpacity,
+                          duration: settings.danmakuDuration,
+                          area: settings.danmakuArea,
+                        );
+                      },
                     ),
                     if (_error != null)
                       Center(
@@ -247,17 +259,24 @@ class _PlayerPageState extends State<PlayerPage> {
                 ),
               ),
             ),
-          // 弹幕开关
-          IconButton(
-            onPressed: () => setState(() => _danmakuEnabled = !_danmakuEnabled),
-            icon: Icon(
-              _danmakuEnabled ? Icons.subtitles : Icons.subtitles_off,
-              size: 18,
-            ),
-            color: _danmakuEnabled
-                ? TallyColors.textPrimary
-                : TallyColors.textTertiary,
-            tooltip: _danmakuEnabled ? '关闭弹幕' : '开启弹幕',
+          // 弹幕开关（与设置页共用同一份状态）
+          ListenableBuilder(
+            listenable: AppSettings.instance,
+            builder: (context, _) {
+              final enabled = AppSettings.instance.danmakuEnabled;
+              return IconButton(
+                onPressed: () =>
+                    AppSettings.instance.setDanmakuEnabled(!enabled),
+                icon: Icon(
+                  enabled ? Icons.subtitles : Icons.subtitles_off,
+                  size: 18,
+                ),
+                color: enabled
+                    ? TallyColors.textPrimary
+                    : TallyColors.textTertiary,
+                tooltip: enabled ? '关闭弹幕' : '开启弹幕',
+              );
+            },
           ),
           // 线路选择：只在有真实多线路时显示。
           if (widget.lines.length > 1) _buildLineMenu(),

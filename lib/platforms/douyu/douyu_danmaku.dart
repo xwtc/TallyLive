@@ -212,7 +212,12 @@ class DouyuDanmakuClient implements DanmakuClient {
 
       final packet = Uint8List.fromList(_pending.sublist(0, total));
       _pending.removeRange(0, total);
-      _handlePacket(packet);
+      try {
+        _handlePacket(packet);
+      } catch (_) {
+        // 单包解析失败不能影响连接：斗鱼的 STT 字段会随活动/版本变化，
+        // 一条坏消息不该让整条 TCP 被重建（那会表现为弹幕断流后重连）。
+      }
     }
   }
 
