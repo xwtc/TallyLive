@@ -1,6 +1,8 @@
 import 'package:tallylive/core/http.dart';
+import 'package:tallylive/core/models.dart';
+import 'package:tallylive/platforms/platform_client.dart';
 
-/// B 站直播客户端（第一阶段只覆盖「房间号 → 可播地址」）。
+/// B 站直播客户端。
 ///
 /// 移植自 TallyLive(Go) 的 internal/platforms/bilibili：
 ///   - client.go   端点常量、UA、匿名 cookie（buvid3=i;）
@@ -10,10 +12,13 @@ import 'package:tallylive/core/http.dart';
 ///   - getRoomPlayInfo 一次只返回一个 qn，每个清晰度要单独请求；
 ///   - B 站 FLV 直连会 404，HLS（.m3u8）直连 200 且不需要 Referer，
 ///     所以这里只暴露 HLS 档位。
-class BilibiliClient {
+class BilibiliClient implements PlatformClient {
   BilibiliClient({LiveHttp? http}) : _http = http ?? LiveHttp();
 
   final LiveHttp _http;
+
+  @override
+  LivePlatform get platform => LivePlatform.bilibili;
 
   static const String _desktopUA =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -38,7 +43,8 @@ class BilibiliClient {
   /// 拉取房间基本信息。
   ///
   /// roomId 支持短号：接口会返回真正的 room_id（后续取流必须用这个）。
-  Future<BilibiliRoomInfo> fetchRoomInfo(String roomId) async {
+  @override
+  Future<RoomInfo> fetchRoomInfo(String roomId) async {
     final json = await _http.getJson(
       _urlRoomGetInfo,
       headers: _headers,
@@ -54,27 +60,27 @@ class BilibiliClient {
     final realRoomId = _asString(data['room_id']);
     final liveStatus = _asInt(data['live_status']);
 
-    return BilibiliRoomInfo(
+    return RoomInfo(
+      platform: platform,
       roomId: realRoomId.isEmpty ? roomId : realRoomId,
-      shortId: _asString(data['short_id']),
-      uid: _asString(data['uid']),
       title: _asString(data['title']),
-      uname: '', // get_info 不返回主播名，需要 getInfoByRoom（后续阶段）
+      // get_info 不返回主播名，需要 getInfoByRoom（下一阶段补）
+      nickname: '',
       cover: _asString(data['user_cover']).isNotEmpty
           ? _asString(data['user_cover'])
           : _asString(data['keyframe']),
-      areaName: _asString(data['area_name']),
-      parentAreaName: _asString(data['parent_area_name']),
+      category: _asString(data['area_name']),
       online: _asInt(data['online']),
       isLive: liveStatus == 1,
     );
   }
 
   /// 取播放地址。只返回 HLS 档位。
-  Future<BilibiliStreamInfo> fetchStreamInfo(String roomId) async {
+  @override
+  Future<StreamInfoResult> fetchStreamInfo(String roomId) async {
     final info = await fetchRoomInfo(roomId);
     if (!info.isLive) {
-      return BilibiliStreamInfo(room: info, variants: const []);
+      return StreamInfoResult(room: info, variants: const []);
     }
 
     // 先不带 qn 请求一次，拿到 accept_qn 与默认档位。
@@ -116,7 +122,7 @@ class BilibiliClient {
       }
     }
 
-    return BilibiliStreamInfo(room: info, variants: variants);
+    return StreamInfoResult(room: info, variants: variants);
   }
 
   /// 请求一次 getRoomPlayInfo。qn 为 null 表示不指定。
@@ -229,56 +235,6 @@ class _PlayInfo {
   final Map<int, String> qnDesc;
   final List<int> acceptQn;
   final List<String> hlsUrls;
-}
-
-class BilibiliRoomInfo {
-  const BilibiliRoomInfo({
-    required this.roomId,
-    required this.shortId,
-    required this.uid,
-    required this.title,
-    required this.uname,
-    required this.cover,
-    required this.areaName,
-    required this.parentAreaName,
-    required this.online,
-    required this.isLive,
-  });
-
-  final String roomId;
-  final String shortId;
-  final String uid;
-  final String title;
-  final String uname;
-  final String cover;
-  final String areaName;
-  final String parentAreaName;
-  final int online;
-  final bool isLive;
-}
-
-class BilibiliStreamInfo {
-  const BilibiliStreamInfo({required this.room, required this.variants});
-
-  final BilibiliRoomInfo room;
-  final List<StreamVariant> variants;
-}
-
-/// 一个清晰度档位。urls 保留多线路，便于失败切换。
-class StreamVariant {
-  const StreamVariant({
-    required this.id,
-    required this.label,
-    required this.url,
-    required this.format,
-    required this.urls,
-  });
-
-  final String id;
-  final String label;
-  final String url;
-  final String format; // hls / flv
-  final List<String> urls;
 }
 
 class BilibiliApiException implements Exception {

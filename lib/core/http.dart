@@ -95,6 +95,47 @@ class LiveHttp {
     }
   }
 
+  /// 发 application/x-www-form-urlencoded POST，返回响应文本。
+  ///
+  /// 斗鱼的取流接口要求表单 POST；参数按 key 排序（与 Go 的 url.Values.Encode 一致），
+  /// 服务端只校验字段值本身，顺序无影响，但保持一致性便于排查。
+  Future<String> postForm(
+    String url,
+    Map<String, String> form, {
+    Map<String, String>? headers,
+  }) async {
+    final keys = form.keys.toList()..sort();
+    final body = keys
+        .map((k) =>
+            '${Uri.encodeQueryComponent(k)}=${Uri.encodeQueryComponent(form[k]!)}')
+        .join('&');
+
+    try {
+      final response = await _dio.post<String>(
+        url,
+        data: body,
+        options: Options(
+          responseType: ResponseType.plain,
+          contentType: Headers.formUrlEncodedContentType,
+          headers: {
+            'User-Agent': defaultUA,
+            'Accept-Language': acceptLanguage,
+            if (headers != null) ...headers,
+          },
+        ),
+      );
+      final status = response.statusCode ?? 0;
+      final text = response.data ?? '';
+      if (status < 200 || status >= 300) {
+        throw HttpStatusException(url, status, text);
+      }
+      return text;
+    } catch (error) {
+      if (error is HttpStatusException) rethrow;
+      throw HttpRequestException(url, error);
+    }
+  }
+
   /// 判断是否值得重试：超时、连接重置、握手失败等。
   static bool _isTransient(Object? error) {
     if (error is DioException) {

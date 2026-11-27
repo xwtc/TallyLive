@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'package:tallylive/platforms/bilibili/bilibili_client.dart';
+import 'package:tallylive/core/models.dart';
 import 'package:tallylive/ui/theme.dart';
 
 /// 播放页。
@@ -19,7 +19,7 @@ class PlayerPage extends StatefulWidget {
     required this.variants,
   });
 
-  final BilibiliRoomInfo room;
+  final RoomInfo room;
   final List<StreamVariant> variants;
 
   @override
@@ -54,15 +54,26 @@ class _PlayerPageState extends State<PlayerPage> {
     await _player.open(
       Media(
         variant.url,
-        // B 站 HLS 直连不需要 Referer，但带上更稳妥（部分 CDN 节点会校验）。
-        httpHeaders: const {
-          'Referer': 'https://live.bilibili.com/',
+        // 各平台 CDN 对 Referer/UA 的要求不同：
+        // B 站 HLS 直连通常不需要 Referer，带上更稳妥；
+        // 斗鱼 FLV 需要站点 Referer，否则边缘节点可能 403。
+        httpHeaders: {
+          'Referer': _refererFor(widget.room.platform, widget.room.roomId),
           'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
                   '(KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
         },
       ),
     );
+  }
+
+  String _refererFor(LivePlatform platform, String roomId) {
+    return switch (platform) {
+      LivePlatform.bilibili => 'https://live.bilibili.com/',
+      LivePlatform.douyu => 'https://www.douyu.com/$roomId',
+      LivePlatform.huya => 'https://www.huya.com/$roomId',
+      LivePlatform.douyin => 'https://live.douyin.com/$roomId',
+    };
   }
 
   @override
@@ -226,13 +237,26 @@ class _PlayerPageState extends State<PlayerPage> {
         const SizedBox(height: 8),
         Row(
           children: [
+            _chip(widget.room.platform.label),
+            const SizedBox(width: 8),
             _chip('房间 ${widget.room.roomId}'),
-            const SizedBox(width: 8),
-            if (widget.room.areaName.isNotEmpty) _chip(widget.room.areaName),
-            const SizedBox(width: 8),
-            if (widget.room.online > 0) _chip('${_formatCount(widget.room.online)} 人气'),
+            if (widget.room.category.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              _chip(widget.room.category),
+            ],
+            if (widget.room.online > 0) ...[
+              const SizedBox(width: 8),
+              _chip('${_formatCount(widget.room.online)} 人气'),
+            ],
           ],
         ),
+        if (widget.room.nickname.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text(
+            widget.room.nickname,
+            style: const TextStyle(color: TallyColors.textSecondary, fontSize: 14),
+          ),
+        ],
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(12),
@@ -242,8 +266,8 @@ class _PlayerPageState extends State<PlayerPage> {
             border: Border.all(color: TallyColors.hairline),
           ),
           child: Text(
-            '弹幕将在下一阶段接入（需要 getDanmuInfo + WBI 签名 + WebSocket）。\n'
-            '当前页面用于验证：B 站取流协议 → media_kit/libmpv → 画面显示。',
+            '当前档位：${_variant.label}（${_variant.format.toUpperCase()}）\n'
+            '弹幕将在下一阶段接入。',
             style: const TextStyle(
               color: TallyColors.textSecondary,
               fontSize: 13,

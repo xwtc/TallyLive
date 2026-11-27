@@ -21,6 +21,9 @@ dependencies:
   # 网络
   dio: ^5.9.0
 
+  # 斗鱼取流签名用 MD5（Go 版是 crypto/md5，Dart 需要这个包）
+  crypto: ^3.0.6
+
   # 弹幕渲染
   canvas_danmaku: ^0.2.7
 

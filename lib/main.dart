@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:tallylive/core/models.dart';
 import 'package:tallylive/platforms/bilibili/bilibili_client.dart';
+import 'package:tallylive/platforms/douyu/douyu_client.dart';
+import 'package:tallylive/platforms/platform_client.dart';
 import 'package:tallylive/ui/player_page.dart';
 import 'package:tallylive/ui/theme.dart';
 
@@ -40,10 +43,17 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final TextEditingController _roomController =
       TextEditingController(text: '6');
-  final BilibiliClient _client = BilibiliClient();
+  final Map<LivePlatform, PlatformClient> _clients = {
+    LivePlatform.bilibili: BilibiliClient(),
+    LivePlatform.douyu: DouyuClient(),
+  };
 
+  LivePlatform _platform = LivePlatform.bilibili;
   bool _loading = false;
   String? _error;
+
+  /// 当前可用的平台（已接入客户端的）。
+  List<LivePlatform> get _availablePlatforms => _clients.keys.toList();
 
   @override
   void dispose() {
@@ -54,13 +64,19 @@ class _HomePageState extends State<HomePage> {
   Future<void> _openRoom() async {
     final roomId = _roomController.text.trim();
     if (roomId.isEmpty) return;
+    final client = _clients[_platform];
+    if (client == null) {
+      setState(() => _error = '${_platform.label} 尚未接入');
+      return;
+    }
+
     setState(() {
       _loading = true;
       _error = null;
     });
 
     try {
-      final info = await _client.fetchStreamInfo(roomId);
+      final info = await client.fetchStreamInfo(roomId);
       if (!mounted) return;
 
       if (!info.room.isLive) {
@@ -102,7 +118,7 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(title: const Text('TallyLive · 在播')),
       body: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
+          constraints: const BoxConstraints(maxWidth: 460),
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
@@ -117,20 +133,38 @@ class _HomePageState extends State<HomePage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '输入 B 站直播间号，验证协议取流与 libmpv 播放链路。',
+                  '输入房间号，验证协议取流与 libmpv 播放链路。',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: TallyColors.textTertiary,
                       ),
                 ),
                 const SizedBox(height: 20),
+                SegmentedButton<LivePlatform>(
+                  segments: _availablePlatforms
+                      .map(
+                        (platform) => ButtonSegment<LivePlatform>(
+                          value: platform,
+                          label: Text(platform.label),
+                        ),
+                      )
+                      .toList(),
+                  selected: {_platform},
+                  onSelectionChanged: (selection) {
+                    setState(() {
+                      _platform = selection.first;
+                      _error = null;
+                    });
+                  },
+                ),
+                const SizedBox(height: 16),
                 TextField(
                   controller: _roomController,
                   keyboardType: TextInputType.number,
                   style: const TextStyle(color: TallyColors.textPrimary),
-                  decoration: const InputDecoration(
-                    labelText: 'B 站房间号',
-                    hintText: '例如 6',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: '${_platform.label}房间号',
+                    hintText: _platform == LivePlatform.douyu ? '例如 9999' : '例如 6',
+                    border: const OutlineInputBorder(),
                   ),
                   onSubmitted: (_) => _openRoom(),
                 ),
