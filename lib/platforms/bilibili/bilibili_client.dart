@@ -172,15 +172,25 @@ class BilibiliClient {
             acceptQn.add(_asInt(qnItem));
           }
 
-          final extra = _firstExtra(codec);
-          final fullUrl = '$baseUrl$extra';
-          if (fullUrl.isEmpty) continue;
+          // 完整地址 = host + base_url + extra。
+          // base_url 是形如 "/live-bvc/904361/live_xxx.m3u8" 的路径，
+          // host 才是 "https://d1--cn-gotcha104.bilivideo.com"，
+          // 顺序写反会得到一个以 "/" 开头的非法 URL。
+          for (final urlInfoItem in _asList(codec['url_info'])) {
+            final urlInfo = _asMap(urlInfoItem);
+            final fullUrl = joinUrl(
+              _asString(urlInfo['host']),
+              baseUrl,
+              _asString(urlInfo['extra']),
+            );
+            if (fullUrl.isEmpty) continue;
 
-          final isHls = protocolName.contains('hls') ||
-              formatName == 'ts' ||
-              fullUrl.contains('.m3u8');
-          if (isHls && !hlsUrls.contains(fullUrl)) {
-            hlsUrls.add(fullUrl);
+            final isHls = protocolName.contains('hls') ||
+                formatName == 'ts' ||
+                fullUrl.contains('.m3u8');
+            if (isHls && !hlsUrls.contains(fullUrl)) {
+              hlsUrls.add(fullUrl);
+            }
           }
         }
       }
@@ -192,17 +202,6 @@ class BilibiliClient {
       acceptQn: acceptQn.toList(),
       hlsUrls: hlsUrls,
     );
-  }
-
-  /// url_info 里第一条的 host + extra 就是完整地址的后缀。
-  String _firstExtra(Map<String, dynamic> codec) {
-    final list = _asList(codec['url_info']);
-    if (list.isEmpty) return '';
-    final first = _asMap(list.first);
-    final host = _asString(first['host']);
-    final extra = _asString(first['extra']);
-    if (host.isEmpty) return extra;
-    return '$host$extra';
   }
 
   /// 前端展示的 5 档，与 Go 版 preferredQNOrder 一致。
@@ -292,8 +291,35 @@ class BilibiliApiException implements Exception {
   String toString() => 'B 站接口 $endpoint 返回 code=$code msg=$message';
 }
 
-/* ----------------------------- JSON 容错工具 ----------------------------- */
+/// 拼 host + base_url + extra，移植自 Go 版 joinURL。
+///
+/// B 站 playinfo 把地址拆成三部分：`base_url` 是路径（以 "/" 开头），
+/// `url_info[].host` 是域名，`url_info[].extra` 是 query（可能以 "?" 开头）。
+/// 顺序必须是 host→base→extra，且要处理好 "?"/"&" 的连接符。
+String joinUrl(String host, String base, String extra) {
+  if (host.isEmpty || base.isEmpty) return '';
+  var full = '${host.endsWith('/') ? host.substring(0, host.length - 1) : host}$base';
+  if (extra.isNotEmpty) {
+    if (!extra.startsWith('?') && !base.contains('?')) {
+      full += '?';
+    } else if (extra.startsWith('?') && base.contains('?')) {
+      extra = extra.substring(1);
+      full += '&';
+    }
+    full += extra;
+  }
+  return enforceHttps(full);
+}
 
+/// B 站部分节点会下发 http:// 地址，统一升级到 https（移植自 Go 版 enforceHTTPS）。
+String enforceHttps(String raw) {
+  if (raw.startsWith('http://')) {
+    return 'https://${raw.substring('http://'.length)}';
+  }
+  return raw;
+}
+
+/* ----------------------------- JSON 容错工具 ----------------------------- */
 Map<String, dynamic> _asMap(Object? value) =>
     value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};
 
