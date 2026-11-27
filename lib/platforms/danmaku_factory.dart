@@ -1,6 +1,7 @@
 import 'package:tallylive/core/danmaku.dart';
 import 'package:tallylive/core/models.dart';
 import 'package:tallylive/platforms/bilibili/bilibili_danmaku.dart';
+import 'package:tallylive/platforms/douyu/douyu_danmaku.dart';
 
 /// 按平台创建弹幕客户端。
 ///
@@ -10,6 +11,7 @@ DanmakuClient? createDanmakuClient(LivePlatform platform) {
     case LivePlatform.bilibili:
       return BilibiliDanmakuClient();
     case LivePlatform.douyu:
+      return DouyuDanmakuClient();
     case LivePlatform.huya:
     case LivePlatform.douyin:
       // 待移植

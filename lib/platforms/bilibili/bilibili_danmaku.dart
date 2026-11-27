@@ -260,19 +260,44 @@ class BilibiliDanmakuClient implements DanmakuClient {
     if (env is! Map) return;
 
     final cmd = env['cmd']?.toString() ?? '';
-    switch (cmd) {
-      case 'DANMU_MSG':
-        _handleDanmuMsg(env['info']);
-        break;
-      case 'SEND_GIFT':
-        _handleGift(env['data']);
-        break;
-      case 'INTERACT_WORD':
-        _handleInteract(env['data']);
-        break;
-      default:
-        break;
+    if (cmd.isEmpty) return;
+
+    // ⚠️ B 站的 cmd 会带后缀，形如 "DANMU_MSG:4:0:2:2:2:0"。
+    // 用 == "DANMU_MSG" 精确匹配会丢掉全部带后缀的普通弹幕，
+    // 表现就是「弹幕比官方直播间少很多」。
+    if (cmd == 'DANMU_MSG' || cmd.startsWith('DANMU_MSG:')) {
+      _handleDanmuMsg(env['info']);
+      return;
     }
+    // 醒目留言也是用户发的文字（不是礼物），官方会把它显示在弹幕区
+    if (cmd == 'SUPER_CHAT_MESSAGE') {
+      _handleSuperChat(env['data']);
+      return;
+    }
+    if (cmd == 'SEND_GIFT' || cmd.startsWith('SEND_GIFT:')) {
+      _handleGift(env['data']);
+      return;
+    }
+    if (cmd == 'INTERACT_WORD' || cmd.startsWith('INTERACT_WORD:')) {
+      _handleInteract(env['data']);
+      return;
+    }
+  }
+
+  /// 醒目留言：付费留言，内容是用户打的字，按聊天弹幕处理。
+  void _handleSuperChat(dynamic data) {
+    if (data is! Map) return;
+    final content = (data['message']?.toString() ?? '').trim();
+    if (content.isEmpty) return;
+    _emit(DanmakuMessage(
+      id: _nextId(),
+      content: content,
+      at: DateTime.now().millisecondsSinceEpoch,
+      nickname: data['user_info'] is Map
+          ? (data['user_info']['uname']?.toString() ?? '')
+          : '',
+      kind: DanmakuKind.chat,
+    ));
   }
 
   /// DANMU_MSG 的 info 是个「万用数组」，位置约定（实测）：
