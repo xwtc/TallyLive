@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:tallylive/core/danmaku.dart';
 import 'package:tallylive/core/models.dart';
+import 'package:tallylive/platforms/danmaku_factory.dart';
+import 'package:tallylive/ui/danmaku_overlay.dart';
 import 'package:tallylive/ui/theme.dart';
 
 /// 播放页。
@@ -31,10 +34,12 @@ class PlayerPage extends StatefulWidget {
 class _PlayerPageState extends State<PlayerPage> {
   late final Player _player;
   late final VideoController _controller;
+  DanmakuClient? _danmaku;
 
   late StreamVariant _variant;
   String? _lineId;
   String? _error;
+  bool _danmakuEnabled = true;
 
   @override
   void initState() {
@@ -52,6 +57,19 @@ class _PlayerPageState extends State<PlayerPage> {
     });
 
     _openCurrent();
+    _startDanmaku();
+  }
+
+  /// 启动弹幕。平台未接入时 _danmaku 为 null，UI 自动退化成无弹幕。
+  Future<void> _startDanmaku() async {
+    final client = createDanmakuClient(widget.room.platform);
+    if (client == null) return;
+    _danmaku = client;
+    try {
+      await client.start(widget.room.roomId);
+    } catch (_) {
+      // 弹幕失败不影响看画面，静默降级
+    }
   }
 
   /// 打开「当前档位 + 当前线路」的组合。
@@ -89,6 +107,8 @@ class _PlayerPageState extends State<PlayerPage> {
 
   @override
   void dispose() {
+    _danmaku?.dispose();
+    _danmaku = null;
     _player.dispose();
     super.dispose();
   }
@@ -110,10 +130,21 @@ class _PlayerPageState extends State<PlayerPage> {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    Video(
-                      controller: _controller,
-                      // 控制条先用 media_kit 自带的，后面换成 Tally 风格自绘。
-                      controls: AdaptiveVideoControls,
+                    // 直播不需要进度条：media_kit 自带控件含可拖动的 seek bar，
+                    // 而 FLV/HLS 直播没有索引、拖了只会报 "force-seekable"。
+                    // 所以关掉内置控件，只保留点击画面播放/暂停。
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _player.playOrPause(),
+                      child: Video(
+                        controller: _controller,
+                        controls: NoVideoControls,
+                      ),
+                    ),
+                    // 弹幕层：与 Video 同层，天然压在画面之上。
+                    DanmakuOverlay(
+                      stream: _danmaku?.messages ?? Stream<DanmakuMessage>.empty(),
+                      enabled: _danmakuEnabled,
                     ),
                     if (_error != null)
                       Center(
@@ -186,6 +217,18 @@ class _PlayerPageState extends State<PlayerPage> {
                 fontSize: 15,
               ),
             ),
+          ),
+          // 弹幕开关
+          IconButton(
+            onPressed: () => setState(() => _danmakuEnabled = !_danmakuEnabled),
+            icon: Icon(
+              _danmakuEnabled ? Icons.subtitles : Icons.subtitles_off,
+              size: 18,
+            ),
+            color: _danmakuEnabled
+                ? TallyColors.textPrimary
+                : TallyColors.textTertiary,
+            tooltip: _danmakuEnabled ? '关闭弹幕' : '开启弹幕',
           ),
           // 线路选择：只在有真实多线路时显示。
           if (widget.lines.length > 1) _buildLineMenu(),

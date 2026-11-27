@@ -50,7 +50,9 @@ lib/
 | S2 | 抽出共享模型 + `PlatformClient` 接口 | ✅ 完成 |
 | S3 | 斗鱼协议（签名链 + getH5PlayV1 + 多 CDN） | ✅ 真机验证可播放 |
 | S3 | 多线路（CDN）切换：档位 × 线路全组合 | ✅ 完成 |
-| S3+ | 弹幕（B 站 WBI+WS / 斗鱼 TCP STT） | ⬜ 待做 |
+| S3+ | B 站弹幕（WBI 签名 + WS + zlib 解包） | ✅ 已实现，待验证 |
+| S3+ | 弹幕渲染层（canvas_danmaku，叠加在视频上） | ✅ 已实现 |
+| S3+ | 斗鱼弹幕（裸 TCP + STT 帧） | ⬜ 待做 |
 | S4 | 虎牙（TARS）、抖音（a_bogus + HEVC-FLV） | ⬜ 待做 |
 | S5 | 夜间 Tally UI（四 Tab）、收藏、搜索、同步 | ⬜ 待做 |
 

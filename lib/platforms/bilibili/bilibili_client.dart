@@ -1,5 +1,6 @@
 import 'package:tallylive/core/http.dart';
 import 'package:tallylive/core/models.dart';
+import 'package:tallylive/platforms/bilibili/bilibili_wbi.dart';
 import 'package:tallylive/platforms/platform_client.dart';
 
 /// B 站直播客户端。
@@ -30,6 +31,12 @@ class BilibiliClient implements PlatformClient {
       'https://api.live.bilibili.com/room/v1/Room/get_info';
   static const String _urlRoomPlayInfo =
       'https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo';
+  static const String _urlDanmuInfo =
+      'https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo';
+  static const String _urlWbiNav = 'https://api.bilibili.com/x/web-interface/nav';
+
+  /// WBI 签名器（key 内部缓存 30 分钟）。
+  late final WbiSigner _wbi = WbiSigner(fetchKeys: _fetchWbiKeys);
 
   /// B 站匿名请求也要求带 buvid3，否则部分接口 412。
   Map<String, String> get _headers => {
@@ -220,6 +227,52 @@ class BilibiliClient implements PlatformClient {
       acceptQn: acceptQn.toList(),
       urls: urls,
       lines: lines,
+    );
+  }
+
+  /// 取弹幕服务器 token 与域名列表（需要 WBI 签名）。
+  ///
+  /// 与 Go 版 danmuInfo 一致：参数为 id / type=0 / web_location=444.8，
+  /// 域名列表里同一个 host 可能重复出现（不同端口），去重保序。
+  Future<({String token, List<String> hosts})> fetchDanmuInfo(
+    String roomId,
+  ) async {
+    final query = await _wbi.sign({
+      'id': roomId,
+      'type': '0',
+      'web_location': '444.8',
+    });
+
+    final json = await _http.getJson('$_urlDanmuInfo?$query', headers: _headers);
+    final map = _asMap(json);
+    final code = _asInt(map['code']);
+    if (code != 0) {
+      throw BilibiliApiException('getDanmuInfo', code, _asString(map['msg']));
+    }
+
+    final data = _asMap(map['data']);
+    final token = _asString(data['token']);
+
+    final hosts = <String>[];
+    final seen = <String>{};
+    for (final item in _asList(data['host_list'])) {
+      final host = _asString(_asMap(item)['host']).trim();
+      if (host.isEmpty || !seen.add(host)) continue;
+      hosts.add(host);
+    }
+    return (token: token, hosts: hosts);
+  }
+
+  /// 从 nav 接口取 WBI 的 img_key / sub_key。
+  ///
+  /// 未登录时 nav 会返回 code=-101，但 data.wbi_img 仍然有值，所以不校验 code。
+  Future<({String imgKey, String subKey})> _fetchWbiKeys() async {
+    final json = await _http.getJson(_urlWbiNav, headers: _headers);
+    final data = _asMap(_asMap(json)['data']);
+    final wbiImg = _asMap(data['wbi_img']);
+    return (
+      imgKey: wbiKeyFromUrl(_asString(wbiImg['img_url'])),
+      subKey: wbiKeyFromUrl(_asString(wbiImg['sub_url'])),
     );
   }
 
