@@ -50,7 +50,11 @@ jobs:
 
       - name: Analyze
         shell: pwsh
-        run: flutter analyze --no-fatal-infos || true
+        run: flutter analyze --no-fatal-infos
+
+      - name: Test
+        shell: pwsh
+        run: flutter test
 
       - name: Build Windows
         shell: pwsh
