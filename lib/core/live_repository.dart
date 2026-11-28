@@ -27,6 +27,7 @@ abstract class LiveRepository {
   Future<List<SearchHit>> search({
     required LivePlatform platform,
     required String keyword,
+    int page = 1,
   });
 
   /// 取播放信息（房间 + 档位 + 线路）。
@@ -92,8 +93,9 @@ class PlatformLiveRepository implements LiveRepository {
   Future<List<SearchHit>> search({
     required LivePlatform platform,
     required String keyword,
+    int page = 1,
   }) =>
-      _client(platform).search(keyword);
+      _client(platform).search(keyword, page: page);
 
   @override
   Future<StreamInfoResult> fetchStreamInfo({

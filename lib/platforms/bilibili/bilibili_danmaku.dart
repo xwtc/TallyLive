@@ -52,6 +52,9 @@ class BilibiliDanmakuClient implements DanmakuClient {
   /// 连续 auth 被拒次数：用于把退避拉长，避免快速重连被上游限流。
   int _authFailures = 0;
 
+  /// 取 token 被风控后置位：重连间隔拉长到 60s，别继续打上游。
+  bool _tokenBlocked = false;
+
   static const Duration _heartbeatInterval = Duration(seconds: 30);
 
   /// 超过这么久没收到任何帧就认为连接已死（B 站服务端会静默丢弃半死连接）。
