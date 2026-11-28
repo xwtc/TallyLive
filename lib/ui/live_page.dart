@@ -64,6 +64,8 @@ class _LivePageState extends State<LivePage> {
     FeedUi.instance.ensurePlatforms(_repo.supportedPlatforms);
     _platform = FeedUi.instance.platform ?? _repo.supportedPlatforms.first;
     FeedUi.instance.addListener(_onFeedChanged);
+    // 关注状态变化（例如在播放层里点了星标）要立刻反映到卡片
+    FollowStore.instance.addListener(_onFollowChanged);
     _scroll.addListener(_onScroll);
     _bootstrap();
   }
@@ -77,8 +79,14 @@ class _LivePageState extends State<LivePage> {
   }
 
   @override
+  /// 关注列表变化后重建，保证卡片上的星标与侧栏一致。
+  void _onFollowChanged() {
+    if (mounted) setState(() {});
+  }
+
   void dispose() {
     FeedUi.instance.removeListener(_onFeedChanged);
+    FollowStore.instance.removeListener(_onFollowChanged);
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
     super.dispose();

@@ -94,12 +94,18 @@ class BilibiliClient extends PlatformClient {
     final realRoomId = _asString(data['room_id']);
     final liveStatus = _asInt(data['live_status']);
 
+    // 主播昵称/头像在 data.anchor_info.base_info 里（uname / face）。
+    // 之前这里写死空串，导致播放页顶栏没有头像、关注进侧栏只显示房间号。
+    final baseInfo = _asMap(_asMap(data['anchor_info'])['base_info']);
+    final nickname = _asString(baseInfo['uname']).trim();
+    final avatar = _httpsUrl(_asString(baseInfo['face']));
+
     return RoomInfo(
       platform: platform,
       roomId: realRoomId.isEmpty ? roomId : realRoomId,
       title: _asString(data['title']),
-      // get_info 不返回主播名，需要 getInfoByRoom（下一阶段补）
-      nickname: '',
+      nickname: nickname,
+      avatar: avatar,
       cover: _asString(data['user_cover']).isNotEmpty
           ? _asString(data['user_cover'])
           : _asString(data['keyframe']),
