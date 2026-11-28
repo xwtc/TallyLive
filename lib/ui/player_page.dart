@@ -11,6 +11,7 @@ import 'package:tallylive/core/account.dart';
 import 'package:tallylive/core/danmaku.dart';
 import 'package:tallylive/core/danmaku_stats.dart';
 import 'package:tallylive/core/follows.dart';
+import 'package:tallylive/core/live_repository.dart';
 import 'package:tallylive/core/models.dart';
 import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/core/settings.dart';
