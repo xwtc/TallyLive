@@ -79,7 +79,9 @@ class _PanelLayer extends StatelessWidget {
     const panelWidth = 384.0;
     final left = (origin.dx + request.anchor.width - panelWidth)
         .clamp(8.0, (size.width - panelWidth - 8).clamp(8.0, double.infinity));
-    // 夹到可视区内：窗口很矮时浮层不能跑到屏幕外\n    final rawTop = origin.dy + request.anchor.height + 6;\n    final top = rawTop < 0 ? 0.0 : rawTop;
+    // 夹到可视区内：窗口很矮时浮层不能跑到屏幕外
+    final rawTop = origin.dy + request.anchor.height + 6;
+    final top = rawTop < 0 ? 0.0 : rawTop;
 
     return Stack(
       children: [
