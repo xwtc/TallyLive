@@ -78,12 +78,12 @@ class _LivePageState extends State<LivePage> {
     _bootstrap();
   }
 
-  @override
   /// 关注列表变化后重建，保证卡片上的星标与侧栏一致。
   void _onFollowChanged() {
     if (mounted) setState(() {});
   }
 
+  @override
   void dispose() {
     FeedUi.instance.removeListener(_onFeedChanged);
     FollowStore.instance.removeListener(_onFollowChanged);
