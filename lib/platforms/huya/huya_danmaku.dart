@@ -1,11 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:tallylive/core/danmaku.dart';
 import 'package:tallylive/core/danmaku_stats.dart';
-import 'package:tallylive/core/models.dart';
 import 'package:tallylive/platforms/huya/huya_client.dart';
 import 'package:tallylive/platforms/huya/huya_tars.dart';
 

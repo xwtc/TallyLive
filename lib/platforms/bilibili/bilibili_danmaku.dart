@@ -7,6 +7,8 @@ import 'dart:typed_data';
 // 否则 `brotli.decode()` 会被解析成库里的顶层 decode 函数（不存在）。
 import 'package:brotli/brotli.dart';
 
+import 'package:flutter/foundation.dart' show debugPrint;
+
 import 'package:tallylive/core/danmaku.dart';
 import 'package:tallylive/core/danmaku_stats.dart';
 import 'package:tallylive/platforms/bilibili/bilibili_client.dart';
@@ -43,8 +45,6 @@ class BilibiliDanmakuClient implements DanmakuClient {
   /// 播放页已知的真实房间号（省掉一次 room get_info）。
   String _realRoomId = '';
 
-  /// 降级原因（getDanmuInfo 被风控时记录，便于界面提示）。
-  String? _lastFallbackReason;
   int _retry = 0;
 
   /// 连续 auth 被拒次数：用于把退避拉长，避免快速重连被上游限流。
@@ -158,8 +158,9 @@ class BilibiliDanmakuClient implements DanmakuClient {
         fetchError = error.toString();
       }
       if (_stopped) return;
-      if (token.isEmpty && fetchError != null) {
-        _lastFallbackReason = fetchError;
+      // 降级到公开服务器时把原因记下来（debug 构建可见，便于排障）
+      if (token.isEmpty && fetchError != null && kDiagnosticsEnabled) {
+        debugPrint('[Bilibili] 弹幕降级到公开服务器：$fetchError');
       }
 
       // 2. 依次尝试各域名
