@@ -190,6 +190,7 @@ class BilibiliDanmakuClient implements DanmakuClient {
       Object? lastError;
       for (final host in info.hosts) {
         if (_stopped) return;
+        stage.value = '正在连接 $host…';
         try {
           await _openSocket(host, realRoomId, info.token);
           // 连上就先算成功，剩余错误交给 readLoop 之后的退避
@@ -199,6 +200,7 @@ class BilibiliDanmakuClient implements DanmakuClient {
           return;
         } catch (error) {
           lastError = error;
+          stage.value = '$host 连接失败：$error';
           continue;
         }
       }
@@ -287,6 +289,7 @@ class BilibiliDanmakuClient implements DanmakuClient {
     );
 
     _resetWatchdog();
+    stage.value = '已连接 $host，等待认证…';
     if (!_connected.isClosed) _connected.add(true);
   }
 
@@ -406,9 +409,11 @@ class BilibiliDanmakuClient implements DanmakuClient {
         // auth 被拒：不直接停止（否则圆点会一直黄），
         // 计入失败次数后按更长的退避重连。
         _authFailures++;
+        stage.value = '认证被拒（code=$code）';
         _scheduleReconnect(_DanmakuConnectError('auth 被拒 code=$code'));
       } else {
         _authFailures = 0;
+        stage.value = '认证成功，等待弹幕数据…';
       }
     } catch (_) {}
   }
