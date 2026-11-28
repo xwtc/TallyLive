@@ -406,24 +406,34 @@ class _CategoryBarState extends State<CategoryBar> {
     _entry = null;
   }
 
+  /// 「全部」浮层面板（对齐 DTV 的 CategoryBar 浮层）：
+  ///
+  /// ```
+  /// 网游竞技                              119 个分区
+  /// ┌────────────┬────────────┬────────────┬────────────┬────────────┐
+  /// │ 英雄联盟   │ 热门游戏   │ 三角洲行动 │ 穿越火线   │ 无畏契约   │
+  /// └────────────┴────────────┴────────────┴────────────┴────────────┘
+  /// ```
+  /// 五列等宽胶囊，选中项用蓝描边（不填充高饱和色）。
   Widget _buildPanel() {
     return Container(
-      constraints: const BoxConstraints(maxHeight: 420),
+      constraints: const BoxConstraints(maxHeight: 460),
       decoration: BoxDecoration(
-        color: TallyColors.raised,
+        color: TallyColors.surface,
         borderRadius: BorderRadius.circular(TallyRadius.card),
         border: Border.all(color: TallyColors.hairline),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // 标题行：分组名 + 数量
           Padding(
             padding: const EdgeInsets.fromLTRB(
-                TallySpace.md, TallySpace.md, TallySpace.md, TallySpace.sm),
+                TallySpace.lg, TallySpace.md, TallySpace.lg, TallySpace.sm),
             child: Row(
               children: [
                 Text(_activeGroup?.name ?? '分区',
-                    style: TallyType.nickname.copyWith(fontSize: 14)),
+                    style: TallyType.nickname.copyWith(fontSize: 15)),
                 const Spacer(),
                 Text('${_categories.length} 个分区', style: TallyType.meta),
               ],
@@ -433,20 +443,13 @@ class _CategoryBarState extends State<CategoryBar> {
           Flexible(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(TallySpace.md),
-              child: Wrap(
-                spacing: TallySpace.sm,
-                runSpacing: TallySpace.sm,
-                children: [
-                  for (final category in _categories)
-                    _PanelChip(
-                      label: category.name,
-                      active: category.id == widget.categoryId,
-                      onTap: () {
-                        widget.onSelectCategory(category.id);
-                        _closePanel();
-                      },
-                    ),
-                ],
+              child: _PanelGrid(
+                categories: _categories,
+                activeId: widget.categoryId,
+                onPick: (category) {
+                  widget.onSelectCategory(category.id);
+                  _closePanel();
+                },
               ),
             ),
           ),
@@ -456,6 +459,45 @@ class _CategoryBarState extends State<CategoryBar> {
   }
 }
 
+/// 面板网格：固定 5 列等宽胶囊（窄屏降为 3 列）。
+class _PanelGrid extends StatelessWidget {
+  const _PanelGrid({
+    required this.categories,
+    required this.activeId,
+    required this.onPick,
+  });
+
+  final List<Category> categories;
+  final String? activeId;
+  final ValueChanged<Category> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth < 420 ? 3 : 5;
+        const gap = TallySpace.sm;
+        final itemWidth =
+            (constraints.maxWidth - gap * (columns - 1)) / columns;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final category in categories)
+              SizedBox(
+                width: itemWidth,
+                child: _PanelChip(
+                  label: category.name,
+                  active: category.id == activeId,
+                  onTap: () => onPick(category),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
 class _PanelChip extends StatelessWidget {
   const _PanelChip({
     required this.label,
@@ -473,17 +515,18 @@ class _PanelChip extends StatelessWidget {
       onTap: onTap,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
-        child: Container(
-          constraints: const BoxConstraints(minWidth: 88),
-          padding: const EdgeInsets.symmetric(
-              horizontal: TallySpace.md, vertical: 7),
-          decoration: active
-              ? TallyDecor.selected
-              : BoxDecoration(
-                  color: TallyColors.surface,
-                  borderRadius: BorderRadius.circular(TallyRadius.card),
-                  border: Border.all(color: TallyColors.hairline),
-                ),
+        child: AnimatedContainer(
+          duration: TallyDuration.fast,
+          height: 36,
+          padding: const EdgeInsets.symmetric(horizontal: TallySpace.sm),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: active ? TallyColors.raised : TallyColors.inset,
+            borderRadius: BorderRadius.circular(TallyRadius.pill),
+            border: Border.all(
+              color: active ? TallyColors.signalBlue : Colors.transparent,
+            ),
+          ),
           child: Text(
             label,
             textAlign: TextAlign.center,
@@ -492,7 +535,8 @@ class _PanelChip extends StatelessWidget {
             style: TextStyle(
               fontSize: 12,
               fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-              color: active ? TallyColors.textPrimary : TallyColors.textSecondary,
+              color:
+                  active ? TallyColors.textPrimary : TallyColors.textSecondary,
             ),
           ),
         ),

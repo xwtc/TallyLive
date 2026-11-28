@@ -11,6 +11,7 @@ import 'package:tallylive/core/models.dart';
 import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/core/settings.dart';
 import 'package:tallylive/platforms/danmaku_factory.dart';
+import 'package:tallylive/ui/components/danmu_panel.dart';
 import 'package:tallylive/ui/danmaku_overlay.dart';
 import 'package:tallylive/ui/theme.dart';
 
@@ -74,6 +75,9 @@ class _PlayerPageState extends State<PlayerPage> {
   double _volumeBeforeMute = 100;
 
   bool _immersive = false;
+
+  /// 右侧弹幕列表面板（对齐 DTV 的 DanmuPanel）。
+  bool _danmuPanelOpen = false;
 
   @override
   void initState() {
@@ -182,9 +186,27 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// 打开「当前档位 + 当前线路」的组合。
   Future<void> _openCurrent() async {
-    final url = _variant.urlForLine(_lineId);
+    var url = _variant.urlForLine(_lineId);
+
+    // 该线路在当前档位没有地址（斗鱼常见：多个 CDN 里只有部分能签名成功）：
+    // 回落到第一个真有地址的线路并明确提示，而不是静默不给选或无脑报错。
     if (url.isEmpty) {
-      setState(() => _error = '该线路没有可用地址');
+      final fallback = widget.lines.firstWhere(
+        (line) => _variant.urlForLine(line.id).isNotEmpty,
+        orElse: () => const StreamLine(id: '', label: ''),
+      );
+      if (fallback.id.isNotEmpty) {
+        setState(() => _lineId = fallback.id);
+        url = _variant.urlForLine(fallback.id);
+        if (mounted) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(content: Text('该线路暂无地址，已切到 ${fallback.label}')),
+          );
+        }
+      }
+    }
+    if (url.isEmpty) {
+      setState(() => _error = '所有线路都没有可用地址，稍后重试');
       return;
     }
     setState(() => _error = null);
@@ -236,6 +258,17 @@ class _PlayerPageState extends State<PlayerPage> {
             _buildStage(),
             _buildTopOverlay(),
             _buildControlBar(),
+            if (_danmuPanelOpen)
+              Positioned(
+                right: 0,
+                top: 0,
+                bottom: 0,
+                child: DanmuPanel(
+                  stream: _danmaku?.messages ??
+                      Stream<DanmakuMessage>.empty(),
+                  onClose: () => setState(() => _danmuPanelOpen = false),
+                ),
+              ),
             if (kDiagnosticsEnabled && _showStats)
               Positioned(
                 left: 0,
@@ -290,6 +323,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     opacity: settings.danmakuOpacity,
                     duration: settings.danmakuDuration,
                     area: settings.danmakuArea,
+                    blockedKeywords: settings.danmakuBlockedList,
                   ),
                 );
               },
@@ -510,6 +544,20 @@ class _PlayerPageState extends State<PlayerPage> {
                     tooltip: enabled ? '关闭弹幕' : '开启弹幕',
                   );
                 },
+              ),
+              IconButton(
+                onPressed: () =>
+                    setState(() => _danmuPanelOpen = !_danmuPanelOpen),
+                icon: Icon(
+                  _danmuPanelOpen
+                      ? Icons.view_sidebar
+                      : Icons.view_sidebar_outlined,
+                  size: 18,
+                ),
+                color: _danmuPanelOpen
+                    ? TallyColors.textPrimary
+                    : TallyColors.textTertiary,
+                tooltip: '弹幕列表',
               ),
               IconButton(
                 onPressed: _openDanmakuSettings,
@@ -777,20 +825,16 @@ class DanmakuSettingsSheet extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 这里不放弹幕开关：播放控制条上已经有一个，
+                // 两处开关同一状态只会让人怀疑哪个生效（去掉重复）。
                 Row(
                   children: [
-                    Text('弹幕设置', style: TallyType.pageTitle.copyWith(fontSize: 15)),
+                    Text('弹幕设置',
+                        style: TallyType.pageTitle.copyWith(fontSize: 15)),
                     const Spacer(),
-                    Row(
-                      children: [
-                        Text(settings.danmakuEnabled ? '已开启' : '已关闭',
-                            style: TallyType.meta),
-                        Switch(
-                          value: settings.danmakuEnabled,
-                          activeThumbColor: TallyColors.signalBlue,
-                          onChanged: settings.setDanmakuEnabled,
-                        ),
-                      ],
+                    Text(
+                      settings.danmakuEnabled ? '弹幕已开启' : '弹幕已关闭',
+                      style: TallyType.meta,
                     ),
                   ],
                 ),
@@ -833,6 +877,26 @@ class DanmakuSettingsSheet extends StatelessWidget {
                   divisions: 18,
                   suffix: '${(settings.danmakuArea * 100).round()}%',
                   onChanged: settings.setDanmakuArea,
+                ),
+                const SizedBox(height: TallySpace.sm),
+                TextFormField(
+                  initialValue: settings.danmakuBlocked,
+                  style: TallyType.subtitle
+                      .copyWith(color: TallyColors.textPrimary),
+                  onChanged: settings.setDanmakuBlocked,
+                  decoration: InputDecoration(
+                    labelText: '屏蔽词（逗号或换行分隔）',
+                    labelStyle: TallyType.meta,
+                    hintText: '例如：抽奖, 加群',
+                    hintStyle: TallyType.meta,
+                    filled: true,
+                    fillColor: TallyColors.inset,
+                    isDense: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(TallyRadius.card),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
                 ),
               ],
             ),

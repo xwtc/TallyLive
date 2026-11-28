@@ -253,6 +253,8 @@ class _LivePageState extends State<LivePage> {
       viewers: streamer.viewers,
     );
     if (!mounted) return;
+    // 卡片上的关注按钮状态来自 FollowStore，切完要重建一次
+    setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(followed ? '已关注' : '已取消关注')),
     );
@@ -470,14 +472,20 @@ class _LivePageState extends State<LivePage> {
                       childAspectRatio: 1.32,
                     ),
                     delegate: SliverChildBuilderDelegate(
-                      (context, index) => Reveal(
-                        index: index,
-                        child: StreamerCard(
-                          streamer: _items[index],
-                          onTap: () => _openStreamer(_items[index]),
-                          onSecondaryTap: () => _showStreamerMenu(_items[index]),
-                        ),
-                      ),
+                      (context, index) {
+                        final streamer = _items[index];
+                        return Reveal(
+                          index: index,
+                          child: StreamerCard(
+                            streamer: streamer,
+                            followed: FollowStore.instance.isFollowing(
+                                streamer.platform, streamer.id),
+                            onToggleFollow: () => _toggleFollow(streamer),
+                            onTap: () => _openStreamer(streamer),
+                            onSecondaryTap: () => _showStreamerMenu(streamer),
+                          ),
+                        );
+                      },
                       childCount: _items.length,
                     ),
                   ),

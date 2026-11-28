@@ -94,7 +94,10 @@ class _PlayerHostState extends State<_PlayerHost> {
       return PlayerPage(
         room: result.room,
         variants: result.variants,
-        lines: result.usableLines,
+        // 传全部线路（含暂时没解析出地址的）：斗鱼的多个 CDN 常常只有第一个
+        // 能签名成功，若只传 usableLines 就只剩 1 条、菜单都不显示。
+        // 选到不可用的线路时由播放页明确提示（不做静默丢弃）。
+        lines: result.lines,
         onClose: PlayerSession.instance.close,
       );
     }

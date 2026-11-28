@@ -40,6 +40,9 @@ class DanmakuOverlay extends StatefulWidget {
   final double duration;
   final double area;
 
+  /// 屏蔽词：命中任一关键词的弹幕直接丢弃（对齐 DTV 的 DanmuBlockControl）。
+  final List<String> blockedKeywords;
+
   @override
   State<DanmakuOverlay> createState() => _DanmakuOverlayState();
 }
@@ -110,6 +113,14 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
       return;
     }
     final text = message.content.trim();
+    // 屏蔽词过滤（大小写不敏感，命中即丢弃）
+    if (text.isEmpty) return;
+    if (widget.blockedKeywords.isNotEmpty) {
+      final lower = text.toLowerCase();
+      for (final word in widget.blockedKeywords) {
+        if (word.isNotEmpty && lower.contains(word.toLowerCase())) return;
+      }
+    }
     if (text.isEmpty) return;
 
     _queue.add(

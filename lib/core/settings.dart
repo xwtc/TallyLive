@@ -47,6 +47,7 @@ class AppSettings extends ChangeNotifier {
   static const String _kDanmakuOpacity = 'danmaku_opacity';
   static const String _kDanmakuDuration = 'danmaku_duration';
   static const String _kDanmakuArea = 'danmaku_area';
+  static const String _kDanmakuBlocked = 'danmaku_blocked';
   static const String _kRecentRooms = 'recent_rooms';
   static const int _maxRecentRooms = 20;
 
@@ -55,9 +56,22 @@ class AppSettings extends ChangeNotifier {
   double _danmakuOpacity = 1;
   double _danmakuDuration = 10;
   double _danmakuArea = 0.5;
+
+  /// 屏蔽词（逗号/换行分隔）。命中的弹幕不渲染。
+  String _danmakuBlocked = '';
   List<RecentRoom> _recentRooms = const [];
 
   bool get danmakuEnabled => _danmakuEnabled;
+
+  String get danmakuBlocked => _danmakuBlocked;
+
+  /// 拆分后的屏蔽词列表（去空、去重）。
+  List<String> get danmakuBlockedList => _danmakuBlocked
+      .split(RegExp(r'[,，\n]'))
+      .map((word) => word.trim())
+      .where((word) => word.isNotEmpty)
+      .toSet()
+      .toList();
   double get danmakuFontSize => _danmakuFontSize;
   double get danmakuOpacity => _danmakuOpacity;
   double get danmakuDuration => _danmakuDuration;
@@ -70,7 +84,8 @@ class AppSettings extends ChangeNotifier {
     _danmakuFontSize = prefs.getDouble(_kDanmakuFontSize) ?? 18;
     _danmakuOpacity = prefs.getDouble(_kDanmakuOpacity) ?? 0.95;
     _danmakuDuration = prefs.getDouble(_kDanmakuDuration) ?? 8;
-    _danmakuArea = prefs.getDouble(_kDanmakuArea) ?? 0.55;
+    _danmakuArea = prefs.getDouble(_kDanmakuArea) ?? 0.5;
+    _danmakuBlocked = prefs.getString(_kDanmakuBlocked) ?? '';
 
     final raw = prefs.getStringList(_kRecentRooms) ?? const [];
     final rooms = <RecentRoom>[];
@@ -97,6 +112,7 @@ class AppSettings extends ChangeNotifier {
     await prefs.setDouble(_kDanmakuOpacity, _danmakuOpacity);
     await prefs.setDouble(_kDanmakuDuration, _danmakuDuration);
     await prefs.setDouble(_kDanmakuArea, _danmakuArea);
+    await prefs.setString(_kDanmakuBlocked, _danmakuBlocked);
     await prefs.setStringList(
       _kRecentRooms,
       _recentRooms.map((r) => '${r.platform.name}|${r.roomId}|${r.at}').toList(),
@@ -129,6 +145,12 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> setDanmakuArea(double value) async {
     _danmakuArea = value.clamp(0.10, 1.0).toDouble();
+    notifyListeners();
+    await _save();
+  }
+  /// 设置屏蔽词（逗号/换行分隔）。
+  Future<void> setDanmakuBlocked(String value) async {
+    _danmakuBlocked = value;
     notifyListeners();
     await _save();
   }
