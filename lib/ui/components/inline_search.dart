@@ -544,7 +544,7 @@ class _HitRowState extends State<_HitRow> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontSize: 11.5,
+                            fontSize: 12,
                             height: 1.25,
                             color: TallyColors.textTertiary,
                             decoration: TextDecoration.none,

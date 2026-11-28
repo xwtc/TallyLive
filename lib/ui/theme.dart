@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 
 /// 夜间导播台配色。
@@ -234,10 +235,44 @@ class TallyDecor {
 }
 
 /// 全局夜间主题。
+/// UI 主字体：按平台选一个**中文覆盖完整**的字族。
+///
+/// 为什么必须指定：不指定时 Flutter 用系统默认字体渲染拉丁字符，
+/// 遇到缺字形再**逐字回退**到别的中文字体，于是同一个词里
+/// 「关」和「注」可能来自两套字体，字重与字形不一致（用户看到"字怪怪的"）。
+/// 指定一个全 CJK 覆盖的字族后，所有中文都来自同一套字形。
+String _uiFontFamily() {
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.macOS:
+    case TargetPlatform.iOS:
+      return 'PingFang SC';
+    case TargetPlatform.android:
+    case TargetPlatform.linux:
+      return 'Noto Sans CJK SC';
+    case TargetPlatform.windows:
+      return 'Microsoft YaHei UI';
+    default:
+      return 'Microsoft YaHei UI';
+  }
+}
+
+/// 字体回退链：主字族缺失时按顺序找，尽量都是 CJK 全覆盖的字族。
+const List<String> _uiFontFallback = [
+  'Microsoft YaHei UI',
+  'Microsoft YaHei',
+  'PingFang SC',
+  'Noto Sans CJK SC',
+  'Source Han Sans SC',
+  'Heiti SC',
+  'Segoe UI',
+];
+
 ThemeData buildTallyTheme() {
   return ThemeData(
     useMaterial3: true,
     brightness: Brightness.dark,
+    fontFamily: _uiFontFamily(),
+    fontFamilyFallback: _uiFontFallback,
     scaffoldBackgroundColor: TallyColors.base,
     colorScheme: const ColorScheme.dark(
       surface: TallyColors.base,

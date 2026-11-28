@@ -447,7 +447,7 @@ class _CategoryBarState extends State<CategoryBar> {
               ],
             ),
           ),
-          const Divider(height: 1),
+          const SizedBox(height: 2),
           Flexible(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(TallySpace.md),

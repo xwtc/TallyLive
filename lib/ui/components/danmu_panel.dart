@@ -318,7 +318,7 @@ class _DanmuRow extends StatelessWidget {
             TextSpan(
               text: message.content,
               style: TextStyle(
-                fontSize: 12.5,
+                fontSize: 12,
                 height: 1.35,
                 // 彩蛋色的弹幕用平台下发的颜色；深色（看不清）或未下发时用主文字色
                 color: isSystem
