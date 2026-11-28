@@ -7,7 +7,6 @@ import 'package:tallylive/core/models.dart';
 import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/ui/components/category_bar.dart';
 import 'package:tallylive/ui/shell/navbar.dart';
-import 'package:tallylive/ui/components/section_header.dart';
 import 'package:tallylive/ui/components/states.dart';
 import 'package:tallylive/ui/components/streamer_card.dart';
 import 'package:tallylive/ui/components/streamer_row.dart';
@@ -351,12 +350,24 @@ class _LivePageState extends State<LivePage> {
             onSelectCategory: _selectCategory,
             compact: _compactCategories,
           ),
-        TallyHeader(liveCount: _items.where((s) => s.isLive).length),
         if (_note.isNotEmpty) _buildNote(),
         Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) =>
-                _buildBody(isCompact, constraints.maxWidth),
+          // 内容区 + 右下角悬浮刷新（图标按钮，不占行）
+          child: Stack(
+            children: [
+              LayoutBuilder(
+                builder: (context, constraints) =>
+                    _buildBody(isCompact, constraints.maxWidth),
+              ),
+              Positioned(
+                right: TallySpace.lg,
+                bottom: TallySpace.lg,
+                child: _FloatingRefreshButton(
+                  busy: _booting || _refreshing,
+                  onTap: () => _bootstrap(keepContent: true),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -474,14 +485,9 @@ class _LivePageState extends State<LivePage> {
       child: CustomScrollView(
         controller: _scroll,
         slivers: [
-          SliverToBoxAdapter(
-            child: SectionHeader(
-              title: '平台精选',
-              count: _items.length,
-              trailingLabel: '刷新',
-              onTrailingTap: () => _bootstrap(keepContent: true),
-            ),
-          ),
+          // 不再显示「平台精选」标题：去掉这行文字后内容直接从分区栏开始，
+          // 更紧凑；刷新改到右下角悬浮图标按钮。
+          const SliverToBoxAdapter(child: SizedBox(height: TallySpace.sm)),
           SliverPadding(
             padding: const EdgeInsets.symmetric(horizontal: TallySpace.md),
             sliver: isCompact
@@ -568,6 +574,63 @@ class Reveal extends StatelessWidget {
         );
       },
       child: child,
+    );
+  }
+}
+/// 右下角悬浮刷新按钮（图标，不占行）。
+///
+/// 之前刷新是「平台精选」标题右侧的文字按钮，但那行标题已按要求去掉；
+/// 现在做成悬浮图标：不占布局、不抢视线，加载中显示转圈并禁用点击。
+class _FloatingRefreshButton extends StatefulWidget {
+  const _FloatingRefreshButton({required this.busy, required this.onTap});
+
+  final bool busy;
+  final VoidCallback onTap;
+
+  @override
+  State<_FloatingRefreshButton> createState() => _FloatingRefreshButtonState();
+}
+
+class _FloatingRefreshButtonState extends State<_FloatingRefreshButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: '刷新',
+      child: MouseRegion(
+        cursor: widget.busy ? SystemMouseCursors.basic : SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.busy ? null : widget.onTap,
+          child: AnimatedContainer(
+            duration: TallyDuration.fast,
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _hovered ? TallyColors.raised : TallyColors.surface,
+              border: Border.all(color: TallyColors.hairline),
+            ),
+            child: widget.busy
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: TallyColors.signalBlue,
+                    ),
+                  )
+                : Icon(
+                    Icons.refresh,
+                    size: 18,
+                    color: _hovered
+                        ? TallyColors.textPrimary
+                        : TallyColors.textSecondary,
+                  ),
+          ),
+        ),
+      ),
     );
   }
 }
