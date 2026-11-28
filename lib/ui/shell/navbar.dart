@@ -164,13 +164,11 @@ class _ToolButton extends StatefulWidget {
     required this.icon,
     required this.tooltip,
     required this.onTap,
-    this.active = false,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback onTap;
-  final bool active;
 
   @override
   State<_ToolButton> createState() => _ToolButtonState();
@@ -195,7 +193,7 @@ class _ToolButtonState extends State<_ToolButton> {
             height: 30,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: widget.active || _hovered
+              color: _hovered
                   ? TallyColors.raised
                   : Colors.transparent,
               shape: BoxShape.circle,
@@ -203,7 +201,7 @@ class _ToolButtonState extends State<_ToolButton> {
             child: Icon(
               widget.icon,
               size: 16,
-              color: widget.active
+              color: _hovered
                   ? TallyColors.textPrimary
                   : TallyColors.textSecondary,
             ),

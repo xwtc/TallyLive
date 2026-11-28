@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:tallylive/core/feed_ui.dart';
 import 'package:tallylive/core/follows.dart';
+import 'package:tallylive/core/models.dart';
 import 'package:tallylive/core/player_session.dart';
+import 'package:tallylive/ui/components/atoms.dart';
 import 'package:tallylive/ui/components/login_sheet.dart';
 import 'package:tallylive/ui/theme.dart';
 
