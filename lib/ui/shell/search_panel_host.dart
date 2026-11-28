@@ -3,13 +3,23 @@ import 'package:tallylive/ui/theme.dart';
 
 /// 搜索浮层的挂载请求。
 class SearchPanelRequest {
-  const SearchPanelRequest({required this.anchor, required this.builder});
+  const SearchPanelRequest({
+    required this.anchor,
+    required this.builder,
+    this.onDismiss,
+  });
 
   /// 输入框的**全局矩形**，用来定位浮层。
   final Rect anchor;
 
   /// 浮层内容由发起方（InlineSearch）自己构建，这样它的状态都还能用。
   final WidgetBuilder builder;
+
+  /// 点空白处时的回调：由发起方清理自己的状态（清空文字 + 失焦）。
+  ///
+  /// 只调 [SearchPanelController.hide] 不够 —— 输入框还留着焦点和文字，
+  /// 之后任何一次 setState 都会让浮层又弹回来。
+  final VoidCallback? onDismiss;
 }
 
 /// 搜索浮层的全局控制器。
@@ -27,8 +37,16 @@ class SearchPanelController {
 
   final ValueNotifier<SearchPanelRequest?> state = ValueNotifier(null);
 
-  void show({required Rect anchor, required WidgetBuilder builder}) {
-    state.value = SearchPanelRequest(anchor: anchor, builder: builder);
+  void show({
+    required Rect anchor,
+    required WidgetBuilder builder,
+    VoidCallback? onDismiss,
+  }) {
+    state.value = SearchPanelRequest(
+      anchor: anchor,
+      builder: builder,
+      onDismiss: onDismiss,
+    );
   }
 
   /// 只更新锚点（输入时窗口可能没动，但换行/滚动后需要重算）。
@@ -38,6 +56,7 @@ class SearchPanelController {
     state.value = SearchPanelRequest(
       anchor: current.anchor,
       builder: current.builder,
+      onDismiss: current.onDismiss,
     );
   }
 
@@ -67,7 +86,44 @@ class _PanelLayer extends StatelessWidget {
 
   final SearchPanelRequest request;
 
-  @override
+
+  /// 生成「挖洞遮罩」的四条边带：上、下、左、右，中间留出 [hole]。
+  ///
+  /// 用四块矩形而不是一个全屏 GestureDetector + IgnorePointer，
+  /// 是因为后者在 Flutter 里没有「排除区域」的原生支持，
+  /// 而四块矩形既简单又不影响命中顺序。
+  static List<Widget> _scrimBands({
+    required Rect hole,
+    required Size size,
+    required VoidCallback onTap,
+  }) {
+    Widget band(Rect rect) {
+      if (rect.width <= 0 || rect.height <= 0) return const SizedBox.shrink();
+      return Positioned(
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+        ),
+      );
+    }
+
+    return [
+      // 上
+      band(Rect.fromLTWH(0, 0, size.width, hole.top)),
+      // 下
+      band(Rect.fromLTWH(
+          0, hole.bottom, size.width, size.height - hole.bottom)),
+      // 左
+      band(Rect.fromLTWH(0, hole.top, hole.left, hole.height)),
+      // 右
+      band(Rect.fromLTWH(
+          hole.right, hole.top, size.width - hole.right, hole.height)),
+    ];
+  }  @override
   Widget build(BuildContext context) {
     final box = context.findRenderObject() as RenderBox?;
     final size = MediaQuery.sizeOf(context);
@@ -85,12 +141,27 @@ class _PanelLayer extends StatelessWidget {
 
     return Stack(
       children: [
-        // 点空白处关闭
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: SearchPanelController.instance.hide,
+        // 点空白处关闭。
+        //
+        // ⚠️ 遮罩不能在输入框那一块也铺上：宿主管在窗口级，
+        // 全屏遮罩会盖住顶栏里的搜索框，用户想点回输入框时会被判成
+        // "点了外部"直接收起。所以在输入框矩形处挖个洞（4 条边带）。
+        ..._scrimBands(
+          hole: Rect.fromLTWH(
+            origin.dx,
+            origin.dy,
+            request.anchor.width,
+            request.anchor.height,
           ),
+          size: size,
+          onTap: () {
+            final dismiss = request.onDismiss;
+            if (dismiss != null) {
+              dismiss();
+            } else {
+              SearchPanelController.instance.hide();
+            }
+          },
         ),
         Positioned(
           left: left,
