@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:canvas_danmaku/canvas_danmaku.dart';
 import 'package:flutter/material.dart';
 import 'package:tallylive/core/danmaku.dart';
+import 'package:tallylive/core/danmaku_stats.dart';
 
 /// 弹幕叠加层。
 ///
@@ -118,8 +119,13 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
         type: DanmakuItemType.scroll,
       ),
     );
+    DanmakuStats.instance.countEnqueued();
     if (_queue.length > _maxQueue) {
-      _queue.removeRange(0, _queue.length - _maxQueue);
+      final drop = _queue.length - _maxQueue;
+      _queue.removeRange(0, drop);
+      for (var i = 0; i < drop; i++) {
+        DanmakuStats.instance.countDropped();
+      }
     }
     _ensureDrain();
   }
@@ -153,6 +159,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
     for (var i = 0; i < batch && _queue.isNotEmpty; i++) {
       final item = _queue.removeAt(0);
       controller?.addDanmaku(item);
+      DanmakuStats.instance.countRendered();
     }
   }
 

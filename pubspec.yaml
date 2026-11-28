@@ -27,6 +27,9 @@ dependencies:
   # 弹幕渲染
   canvas_danmaku: ^0.3.4
 
+  # B 站弹幕 protover=3 用 brotli 压缩；不引入就只能丢弃这类帧
+  brotli: ^0.6.0
+
   # 常用
   shared_preferences: ^2.3.2
 

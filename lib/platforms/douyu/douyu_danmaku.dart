@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:tallylive/core/danmaku.dart';
+import 'package:tallylive/core/danmaku_stats.dart';
 
 /// 斗鱼弹幕客户端。
 ///
@@ -212,6 +213,7 @@ class DouyuDanmakuClient implements DanmakuClient {
 
       final packet = Uint8List.fromList(_pending.sublist(0, total));
       _pending.removeRange(0, total);
+      DanmakuStats.instance.countFrame();
       try {
         _handlePacket(packet);
       } catch (_) {
@@ -229,6 +231,8 @@ class DouyuDanmakuClient implements DanmakuClient {
       allowMalformed: true,
     );
     final fields = parseStt(body);
+    final type = fields['type'] ?? '';
+    if (type.isNotEmpty) DanmakuStats.instance.countCommand(type);
 
     switch (fields['type']) {
       case 'chatmsg':
@@ -245,6 +249,7 @@ class DouyuDanmakuClient implements DanmakuClient {
           color: colorFromDouyuCol(fields['col']),
           kind: DanmakuKind.chat,
         ));
+        DanmakuStats.instance.countChat();
         break;
       case 'uenter':
         final name = (fields['nn'] ?? '').trim();

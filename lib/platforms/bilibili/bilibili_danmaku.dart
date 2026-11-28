@@ -3,7 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:brotli/brotli.dart' as brotli;
+
 import 'package:tallylive/core/danmaku.dart';
+import 'package:tallylive/core/danmaku_stats.dart';
 import 'package:tallylive/platforms/bilibili/bilibili_client.dart';
 
 /// B 站弹幕客户端。
@@ -53,8 +56,11 @@ class BilibiliDanmakuClient implements DanmakuClient {
   static const int _opAuth = 7;
   static const int _opAuthReply = 8;
 
-  /// protover=2：接受 zlib 压缩帧。官方前端已用 3（brotli），但 2 仍有效，
-  /// 且 zlib 是 Dart SDK 自带，不需要额外依赖。
+  /// protover=2（zlib）。
+  ///
+  /// 跟 DTV 的选择一致：2 依然有效，且 zlib 是 Dart SDK 自带。
+  /// 官方前端已用 3（brotli），所以下面**同时保留** brotli 解码能力——
+  /// 万一服务端按 3 下发，我们也能解，不会整帧丢弃。
   static const int _protover = 2;
 
   @override
@@ -137,7 +143,11 @@ class BilibiliDanmakuClient implements DanmakuClient {
     }
   }
 
-  Future<void> _openSocket(String host, String realRoomId, String token) async {
+  Future<void> _openSocket(
+    String host,
+    String realRoomId,
+    String token,
+  ) async {
     final socket = await WebSocket.connect(
       'wss://$host/sub',
       headers: {
@@ -155,7 +165,7 @@ class BilibiliDanmakuClient implements DanmakuClient {
     }
     _socket = socket;
 
-    // 发 auth
+    // 发 auth（参数与 DTV 的 Go 实现保持一致：不带 buvid）
     final auth = jsonEncode({
       'uid': 0,
       'roomid': int.tryParse(realRoomId) ?? 0,
@@ -248,53 +258,93 @@ class BilibiliDanmakuClient implements DanmakuClient {
     }
     if (bytes == null) return;
 
+    DanmakuStats.instance.countFrame();
     try {
-      final packets = decodePackets(bytes, 0);
-      for (final packet in packets) {
-        _handlePacket(packet);
-      }
+      _processFrame(bytes);
     } catch (_) {
       // 单帧解析失败绝不能影响连接：弹幕协议会随版本变化，
       // 一条坏消息不应该让整条 WS 被丢掉（那会表现为反复重连）。
     }
   }
 
-  void _handlePacket(DanmakuPacket packet) {
-    switch (packet.op) {
+  /// 处理一个 WS 消息。
+  ///
+  /// 只读**外层**的 16 字节头拿 ver/op，body 交给对应的处理器。
+  void _processFrame(Uint8List data) {
+    if (data.length < 16) return;
+    final view = ByteData.view(data.buffer, data.offsetInBytes, data.length);
+
+    var headerLen = view.getUint16(4, Endian.big);
+    if (headerLen < 16) headerLen = 16;
+    final ver = view.getUint16(6, Endian.big);
+    final op = view.getUint32(8, Endian.big);
+
+    final body = data.length > headerLen
+        ? Uint8List.sublistView(data, headerLen)
+        : Uint8List(0);
+
+    switch (op) {
       case _opAuthReply:
-        if (packet.body.isNotEmpty) {
-          try {
-            final reply = jsonDecode(utf8.decode(packet.body, allowMalformed: true));
-            final code = (reply is Map) ? reply['code'] : null;
-            if (code != null && code != 0) {
-              // auth 被拒：不直接停止（否则圆点会一直黄），
-              // 计入失败次数后按更长的退避重连。
-              _authFailures++;
-              _scheduleReconnect(
-                _DanmakuConnectError('auth 被拒 code=$code'),
-              );
-            } else {
-              _authFailures = 0;
-            }
-          } catch (_) {}
-        }
+        _handleAuthReply(body);
         return;
       case _opHeartbeatReply:
         // 心跳回执里带人气值，当前不展示
         return;
       case _opNotification:
-        _handleCommand(packet.body);
+        _handleNotification(body, ver);
         return;
       default:
         return;
     }
   }
 
-  void _handleCommand(Uint8List body) {
+  void _handleAuthReply(Uint8List body) {
     if (body.isEmpty) return;
+    try {
+      final reply = jsonDecode(utf8.decode(body, allowMalformed: true));
+      final code = (reply is Map) ? reply['code'] : null;
+      if (code != null && code != 0) {
+        // auth 被拒：不直接停止（否则圆点会一直黄），
+        // 计入失败次数后按更长的退避重连。
+        _authFailures++;
+        _scheduleReconnect(_DanmakuConnectError('auth 被拒 code=$code'));
+      } else {
+        _authFailures = 0;
+      }
+    } catch (_) {}
+  }
+
+  /// 处理 op=5 的通知帧。
+  ///
+  /// 流程：按外层头取 ver → 解压（zlib / brotli）→ 按 16 字节头逐包解析。
+  ///
+  /// 与 DTV（Go 版）的差别只有一处：**失步时重同步**。
+  /// DTV 遇到长度异常的包直接 break，把同一帧后面的弹幕全丢掉；
+  /// 这里改为向后逐字节寻找下一个合法头继续解析。
+  void _handleNotification(Uint8List body, int ver) {
+    if (body.isEmpty) return;
+
+    Uint8List payload = body;
+    if (ver == 2) {
+      payload = _inflate(body) ?? Uint8List(0);
+    } else if (ver == 3) {
+      // 我们请求的是 protover=2，理论上不会收到 brotli；
+      // 但服务端如果按 3 下发，这里能解就不会整帧丢弃。
+      payload = _unbrotli(body) ?? Uint8List(0);
+    }
+    if (payload.isEmpty) return;
+    DanmakuStats.instance.countDecodedFrame();
+
+    for (final packet in decodePackets(payload, 0)) {
+      if (packet.op != _opNotification || packet.body.isEmpty) continue;
+      _handleCommandJson(utf8.decode(packet.body, allowMalformed: true));
+    }
+  }
+
+  void _handleCommandJson(String jsonText) {
     dynamic env;
     try {
-      env = jsonDecode(utf8.decode(body, allowMalformed: true));
+      env = jsonDecode(jsonText);
     } catch (_) {
       return;
     }
@@ -302,6 +352,7 @@ class BilibiliDanmakuClient implements DanmakuClient {
 
     final cmd = env['cmd']?.toString() ?? '';
     if (cmd.isEmpty) return;
+    DanmakuStats.instance.countCommand(cmd);
 
     // ⚠️ B 站的 cmd 会带后缀，形如 "DANMU_MSG:4:0:2:2:2:0"。
     // 用 == "DANMU_MSG" 精确匹配会丢掉全部带后缀的普通弹幕，
@@ -382,6 +433,7 @@ class BilibiliDanmakuClient implements DanmakuClient {
       level: level,
       kind: DanmakuKind.chat,
     ));
+    DanmakuStats.instance.countChat();
   }
 
   void _handleGift(dynamic data) {
@@ -464,6 +516,10 @@ Uint8List encodePacket(int op, List<int> body) {
 ///
 /// `ver=2` 的 body 是 zlib 压缩的**再次分包**数据，解压后要递归再拆；
 /// 深度上限 8 防止畸形数据打爆栈。
+///
+/// **失步重同步**：DTV（Go 版）遇到长度异常的包会直接 break，导致同一帧
+/// 后面的弹幕全部丢失。这里改为向后逐字节探测下一个合法包头继续解析，
+/// 最多探测到帧尾；解析出的坏包会在 JSON 解析阶段被自然丢弃。
 List<DanmakuPacket> decodePackets(Uint8List data, int depth) {
   if (depth > 8) return const [];
 
@@ -479,12 +535,16 @@ List<DanmakuPacket> decodePackets(Uint8List data, int depth) {
 
     if (headerLen < 16) headerLen = 16;
 
-    // ⚠️ 这里不能用 `packLen < headerLen + 1`：
-    // 空 body 的包（packLen == headerLen == 16）是合法的，
-    // 原来那样写会在这里 break，把**同一帧后面的所有包全部丢掉**。
-    // B 站压缩帧里常夹着空包，一旦出现在批次中间，后面几十条弹幕就没了
-    // （Go 版 DTV 有同样的 bug，所以它的弹幕也比官方少）。
-    if (packLen < headerLen || offset + packLen > data.length) break;
+    // 空 body 的包（packLen == headerLen）是合法的：
+    // 用 `packLen < headerLen + 1` 判断会把同一帧后面的包全丢掉。
+    final valid =
+        packLen >= headerLen && offset + packLen <= data.length;
+    if (!valid) {
+      final next = _resync(data, offset + 1);
+      if (next < 0) break;
+      offset = next;
+      continue;
+    }
 
     final body = Uint8List.sublistView(data, offset + headerLen, offset + packLen);
     offset += packLen;
@@ -497,8 +557,12 @@ List<DanmakuPacket> decodePackets(Uint8List data, int depth) {
         }
       }
     } else if (ver == 3) {
-      // brotli：我们用 protover=2，正常不会收到
-      continue;
+      if (body.isNotEmpty) {
+        final plain = _unbrotli(body);
+        if (plain != null) {
+          result.addAll(decodePackets(plain, depth + 1));
+        }
+      }
     } else {
       result.add(DanmakuPacket(op: op, ver: ver, body: body));
     }
@@ -507,10 +571,35 @@ List<DanmakuPacket> decodePackets(Uint8List data, int depth) {
   return result;
 }
 
+/// 从 [from] 起逐字节寻找下一个看起来合法的包头，返回其偏移；找不到返回 -1。
+///
+/// 合法条件：header_len >= 16、pack_len >= header_len、且 offset+pack_len 不越界。
+/// 这是"失步重同步"的核心：宁可多解析几个垃圾包（后续 JSON 解析会丢弃），
+/// 也不要因为一个坏包丢掉整帧剩余内容。
+int _resync(Uint8List data, int from) {
+  final view = ByteData.view(data.buffer, data.offsetInBytes, data.length);
+  for (var i = from; i + 16 <= data.length; i++) {
+    final packLen = view.getUint32(i, Endian.big);
+    final headerLen = view.getUint16(i + 4, Endian.big);
+    if (headerLen >= 16 && packLen >= headerLen && i + packLen <= data.length) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 Uint8List? _inflate(Uint8List data) {
   try {
     // ZLibDecoder 的构造不是 const，这里不能加 const。
     return Uint8List.fromList(ZLibDecoder().convert(data));
+  } catch (_) {
+    return null;
+  }
+}
+
+Uint8List? _unbrotli(Uint8List data) {
+  try {
+    return Uint8List.fromList(brotli.decode(data));
   } catch (_) {
     return null;
   }

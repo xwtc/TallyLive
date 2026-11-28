@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:tallylive/core/danmaku.dart';
+import 'package:tallylive/core/danmaku_stats.dart';
 import 'package:tallylive/core/models.dart';
 import 'package:tallylive/core/settings.dart';
 import 'package:tallylive/platforms/danmaku_factory.dart';
@@ -46,6 +47,9 @@ class _PlayerPageState extends State<PlayerPage> {
   /// 弹幕连接状态：null=该平台未接入弹幕，true/false=已连接/重连中。
   bool? _danmakuOnline;
   StreamSubscription<bool>? _danmakuStatusSub;
+
+  /// 是否展开弹幕调试面板（长按标题栏切换）。
+  bool _showStats = false;
 
   @override
   void initState() {
@@ -193,6 +197,7 @@ class _PlayerPageState extends State<PlayerPage> {
                 ),
               ),
             ),
+            if (kDiagnosticsEnabled && _showStats) _buildStatsPanel(context),
             Expanded(child: _buildInfo(context)),
           ],
         ),
@@ -232,19 +237,26 @@ class _PlayerPageState extends State<PlayerPage> {
               ),
             ),
           Expanded(
-            child: Text(
-              widget.room.title.isEmpty ? '房间 ${widget.room.roomId}' : widget.room.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: TallyColors.textPrimary,
-                fontSize: 15,
+            // 长按标题栏切换弹幕调试面板（仅非 release 构建有效）
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onLongPress: kDiagnosticsEnabled
+                  ? () => setState(() => _showStats = !_showStats)
+                  : null,
+              child: Text(
+                widget.room.title.isEmpty ? '房间 ${widget.room.roomId}' : widget.room.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: TallyColors.textPrimary,
+                  fontSize: 15,
+                ),
               ),
             ),
           ),
-          // 弹幕连接状态：仅在该平台接入了弹幕时显示。
-          // 蓝点=已连接；琥珀点=重连中（这时弹幕会断续，属网络侧而非渲染问题）。
-          if (_danmakuOnline != null)
+          // 弹幕连接状态圆点（**诊断用，release 构建剔除**）。
+          // 蓝点=已连接；琥珀点=重连中（此时弹幕会断续，属网络侧问题）。
+          if (kDiagnosticsEnabled && _danmakuOnline != null)
             Tooltip(
               message: _danmakuOnline! ? '弹幕已连接' : '弹幕重连中',
               child: Container(
@@ -455,6 +467,63 @@ class _PlayerPageState extends State<PlayerPage> {
           ),
         ),
       ],
+    );
+  }
+
+  /// 弹幕管线调试面板。
+  ///
+  /// 用来回答「弹幕为什么比官方少」：链路每一环的数字都在这里。
+  /// 如果 `聊天 → 入队 → 已画` 守恒，说明客户端一条没丢，
+  /// 屏幕密度就是服务端给的全部。
+  Widget _buildStatsPanel(BuildContext context) {
+    return ListenableBuilder(
+      listenable: DanmakuStats.instance,
+      builder: (context, _) {
+        final stats = DanmakuStats.instance;
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          color: TallyColors.raised,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Text(
+                    '弹幕管线',
+                    style: TextStyle(
+                      color: TallyColors.signalBlue,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: stats.reset,
+                    child: const Text(
+                      '重置',
+                      style: TextStyle(
+                        color: TallyColors.textTertiary,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              SelectableText(
+                stats.summary,
+                style: const TextStyle(
+                  color: TallyColors.textSecondary,
+                  fontSize: 11,
+                  height: 1.5,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
