@@ -115,6 +115,15 @@ class TarsWriter {
     _buf.add(data);
   }
 
+  /// `list<string>`：head + 元素数 + 每项（tag0）。
+  void writeStringList(int tag, List<String> values) {
+    _putHead(tag, TarsTypes.list);
+    writeInt32(0, values.length);
+    for (final value in values) {
+      writeString(0, value);
+    }
+  }
+
   void writeEmptyMap(int tag) {
     _putHead(tag, TarsTypes.map);
     writeInt32(0, 0);

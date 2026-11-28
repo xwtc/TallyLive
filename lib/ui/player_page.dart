@@ -271,25 +271,27 @@ class _PlayerPageState extends State<PlayerPage> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            _buildStage(),
+            // 弹幕面板打开时画面与面板并排（对齐 DTV）：
+            // 面板占右侧固定宽度，画面在剩余空间里按比例 letterbox。
+            // 之前面板绝对定位覆盖在画面上，既挡内容又和底部控件条叠在一起。
+            Row(
+              children: [
+                Expanded(child: _buildStage()),
+                if (_danmuPanelOpen)
+                  DanmuPanel(
+                    stream: _danmaku?.messages ??
+                        Stream<DanmakuMessage>.empty(),
+                    errorHint: _danmakuError,
+                    onClose: () => setState(() => _danmuPanelOpen = false),
+                  ),
+              ],
+            ),
             _buildTopOverlay(),
             _buildControlBar(),
-            if (_danmuPanelOpen)
-              Positioned(
-                right: 0,
-                top: 0,
-                bottom: 72,
-                child: DanmuPanel(
-                  stream: _danmaku?.messages ??
-                      Stream<DanmakuMessage>.empty(),
-                  errorHint: _danmakuError,
-                  onClose: () => setState(() => _danmuPanelOpen = false),
-                ),
-              ),
             if (kDiagnosticsEnabled && _showStats)
               Positioned(
                 left: 0,
-                right: 0,
+                right: _danmuPanelOpen ? 244 : 0,
                 bottom: 76,
                 child: _buildStatsPanel(),
               ),

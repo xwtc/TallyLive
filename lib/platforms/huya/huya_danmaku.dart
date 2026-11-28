@@ -9,12 +9,18 @@ import 'package:tallylive/platforms/huya/huya_tars.dart';
 
 /// 虎牙弹幕客户端。
 ///
-/// **移植自 DTV `internal/platforms/huya/danmaku.go`**：
-/// - 连接 `wss://cdnws.api.huya.com`
-/// - 心跳：DTV 注释写明「包体是 TARS 编码的 OnUserHeartBeat，自己拼容易错，
-///   因此原样保留」，这里同样用那串固定字节
-/// - 进房包：TARS 嵌套（ayyuid / topSid / subSid 来自房间信息）
-/// - 收包：外层 type==7 时取 body → HYPushMessage，uri==1400 是聊天
+/// **1:1 移植自 DTV `internal/platforms/huya/danmaku.go`**：
+///
+/// ```
+/// 连接    wss://cdnws.api.huya.com
+/// 心跳    20s，发固定字节（TARS 编码的 OnUserHeartBeat，DTV 注明"原样保留"）
+/// 进房    wscmd{ int32(tag0)=16, bytes(tag1)=oos }
+///         oos{ stringList(tag0)=["live:<uid>","chat:<uid>"], string(tag1)="" }
+/// 收包    外层 int32(tag0)=7 + bytes(tag1)
+///           → 内层 int32(tag1)=1400 + bytes(tag2)   （1400 才是聊天）
+///             → 载荷 struct(tag0)=HuyaUser{uid@0, imid@1, nick@2, gender@3}
+///                      + string(tag3)=正文 + struct(tag6)=BulletFormat{color@0}
+/// ```
 class HuyaDanmakuClient implements DanmakuClient {
   HuyaDanmakuClient({HuyaClient? client}) : _client = client ?? HuyaClient();
 
@@ -35,19 +41,17 @@ class HuyaDanmakuClient implements DanmakuClient {
   int _sequence = 0;
   String _roomId = '';
 
-  /// 进房参数（从房间信息里取）。
+  /// 订阅用的频道 ID（虎牙的 uid/yyid，进房 topic 要用）。
   int _ayyuid = 0;
-  int _topSid = 0;
-  int _subSid = 0;
 
   static const String _wsUrl = 'wss://cdnws.api.huya.com';
   static const Duration _heartbeatInterval = Duration(seconds: 20);
   static const Duration _readTimeout = Duration(seconds: 90);
 
-  /// 心跳包字节（对齐 DTV 的 danmakuHeartbeatBytes，原样保留）。
+  /// 心跳包字节（对齐 DTV 的 danmakuHeartbeatBytes）。
   ///
-  /// 注释里明确写过：包体是 TARS 编码的 onlineui.OnUserHeartBeat 请求，
-  /// 自己拼很容易错，所以直接照抄抓包得到的固定字节。
+  /// DTV 注释：包体是 TARS 编码的 onlineui.OnUserHeartBeat 请求，
+  /// 自己拼很容易错，因此从抓包原样保留。
   static const List<int> _heartbeatBytes = [
     0x00, 0x03, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x02,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -100,13 +104,10 @@ class HuyaDanmakuClient implements DanmakuClient {
   Future<void> _connect() async {
     if (_stopped) return;
     try {
-      // 进房需要 ayyuid / topSid / subSid，只能从房间信息接口拿。
       final info = await _client.fetchHuyaJoinInfo(_roomId);
-      _ayyuid = info.ayyuid;
-      _topSid = info.topSid;
-      _subSid = info.subSid;
-      if (_topSid == 0) {
-        throw const HuyaDanmakuException('没有拿到 topSid，无法进房');
+      _ayyuid = info.ayyuid != 0 ? info.ayyuid : info.topSid;
+      if (_ayyuid == 0) {
+        throw const HuyaDanmakuException('没有拿到订阅用的 uid');
       }
       if (_stopped) return;
 
@@ -119,7 +120,6 @@ class HuyaDanmakuClient implements DanmakuClient {
       }
       _socket = socket;
 
-      // 进房包
       socket.add(_buildRegPayload());
 
       _heartbeat?.cancel();
@@ -151,23 +151,20 @@ class HuyaDanmakuClient implements DanmakuClient {
 
   /// 组装进房包（对齐 DTV `buildRegPayload`）。
   ///
-  /// 外层：int 1 固定 + 内层字节数组；内层依次是
-  /// ayyuid / true / "" / "" / topSid / subSid / 0 / 0。
+  /// ⚠️ 不是 Simple Live 那种 `{ayyuid, true, "", "", topSid, ...}` 结构：
+  /// 现在的虎牙进房是「订阅 topic」，两个 topic 名固定为 `live:<uid>` 与
+  /// `chat:<uid>`，命令号固定 16。按旧结构发，连接会成功但**收不到任何弹幕**。
   Uint8List _buildRegPayload() {
-    final inner = TarsWriter();
-    inner.writeInt64(0, _ayyuid);
-    inner.writeInt8(1, 1); // true
-    inner.writeString(2, '');
-    inner.writeString(3, '');
-    inner.writeInt64(4, _topSid);
-    inner.writeInt64(5, _subSid);
-    inner.writeInt64(6, 0);
-    inner.writeInt64(7, 0);
+    final topics = <String>['live:$_ayyuid', 'chat:$_ayyuid'];
 
-    final outer = TarsWriter();
-    outer.writeInt32(0, 1);
-    outer.writeBytes(1, inner.toBytes());
-    return outer.toBytes();
+    final oos = TarsWriter();
+    oos.writeStringList(0, topics);
+    oos.writeString(1, '');
+
+    final wscmd = TarsWriter();
+    wscmd.writeInt32(0, 16);
+    wscmd.writeBytes(1, oos.toBytes());
+    return wscmd.toBytes();
   }
 
   void _resetWatchdog() {
@@ -210,99 +207,68 @@ class HuyaDanmakuClient implements DanmakuClient {
     try {
       _processFrame(bytes);
     } catch (_) {
-      // 单帧解析失败不能影响连接
+      // 单帧失败不能影响连接
     }
   }
 
+  /// 外层 int32(tag0)=7 + bytes(tag1) → 内层 int32(tag1) + bytes(tag2)。
   void _processFrame(Uint8List data) {
-    final reader = TarsReader(data);
-    // 外层 type：DTV 里读 tag0，期望 7
-    final type = reader.takeHead();
-    if (type.type != TarsTypes.int8 && type.type != TarsTypes.int32 &&
-        type.type != TarsTypes.zero) {
-      return;
-    }
-    final body = reader.readBytesTag(1);
-    if (body == null || body.isEmpty) return;
+    final outer = TarsReader(data);
+    final outerType = outer.readInt32Tag(0, -1);
+    if (outerType != 7) return;
+    final innerBytes = outer.readBytesTag(1);
+    if (innerBytes == null || innerBytes.isEmpty) return;
     DanmakuStats.instance.countDecodedFrame();
 
-    final push = TarsReader(body);
-    final head = push.takeHead();
-    if (head.type != TarsTypes.structBegin) {
-      // 也可能是扁平结构：直接按 tag 读
-    }
-    final uri = push.readInt32Tag(1, -1);
-    final msg = push.readBytesTag(2);
+    final inner = TarsReader(innerBytes);
+    final nested = inner.readInt32Tag(1, -1);
+    final payloadBytes = inner.readBytesTag(2);
+    if (payloadBytes == null || payloadBytes.isEmpty) return;
 
-    if (uri == 1400 && msg != null && msg.isNotEmpty) {
-      DanmakuStats.instance.countCommand('HYMessage');
-      _handleChat(msg);
-    } else if (uri == 8006) {
-      // 人气值，当前不展示
+    if (nested != 1400) {
+      // 非聊天（礼物/进场/人气），忽略
+      return;
     }
+    DanmakuStats.instance.countCommand('HYMessage:1400');
+    _handleChat(payloadBytes);
   }
 
-  /// 解析 HYMessage：userInfo(0).nickName(2)、content(3)、bulletFormat(6).fontColor(0)
+  /// 载荷：struct(tag0)=HuyaUser + string(tag3)=正文 + struct(tag6)=BulletFormat。
+  ///
+  /// ⚠️ DTV 注释里记了一个必须照做的陷阱：
+  /// 进 struct(0) 后要把 tag0/1/3 都读掉（即使不用），
+  /// 否则内层 struct 的 tag3 会"抢走"后面正文的 tag3，导致正文永远为空。
   void _handleChat(Uint8List data) {
-    final reader = TarsReader(data);
-    final head = reader.takeHead();
-    if (head.type != TarsTypes.structBegin) return;
+    final payload = TarsReader(data);
 
-    // userInfo 是嵌套结构体（tag 0）
     var nickname = '';
-    final userBytes = _readStructBytes(reader, 0);
-    if (userBytes != null) {
-      final userReader = TarsReader(userBytes);
-      final userHead = userReader.takeHead();
-      if (userHead.type == TarsTypes.structBegin) {
-        nickname = userReader.readStringTag(2, '');
-      }
+    if (payload.readStructBegin(0)) {
+      payload.readInt64Tag(0, -1);
+      payload.readInt64Tag(1, -1);
+      nickname = payload.readStringTag(2, '');
+      payload.readInt32Tag(3, -1); // 关键：读掉，防止抢走正文 tag3
     }
 
-    final content = reader.readStringTag(3, '');
-    if (content.trim().isEmpty) return;
+    final text = payload.readStringTag(3, '');
+    if (text.trim().isEmpty) return;
 
     var color = '';
-    final formatBytes = _readStructBytes(reader, 6);
-    if (formatBytes != null) {
-      final formatReader = TarsReader(formatBytes);
-      final formatHead = formatReader.takeHead();
-      if (formatHead.type == TarsTypes.structBegin) {
-        final fontColor = formatReader.readInt32Tag(0, 0);
-        if (fontColor > 0) {
-          color = '#${fontColor.toRadixString(16).padLeft(6, '0')}';
-        }
+    if (payload.readStructBegin(6)) {
+      final fontColor = payload.readInt32Tag(0, 16777215);
+      if (fontColor > 0) {
+        color = '#${fontColor.toRadixString(16).padLeft(6, '0')}';
       }
     }
 
     _emit(DanmakuMessage(
       id: '${_roomId}_${DateTime.now().microsecondsSinceEpoch}_${_sequence++}',
-      content: content,
+      content: text,
       at: DateTime.now().millisecondsSinceEpoch,
       nickname: nickname,
       color: color,
       kind: DanmakuKind.chat,
     ));
     DanmakuStats.instance.countChat();
-  }
-
-  /// 读一个嵌套结构体的原始字节（用于再解析）。找不到返回 null。
-  Uint8List? _readStructBytes(TarsReader reader, int tag) {
-    final head = reader.find(tag);
-    if (head == null || head.type != TarsTypes.structBegin) return null;
-    final start = reader.pos;
-    // 跳到该结构体的结束
-    var depth = 1;
-    while (reader.pos < reader.length && depth > 0) {
-      final inner = reader.takeHead();
-      if (inner.type == TarsTypes.structBegin) depth++;
-      if (inner.type == TarsTypes.structEnd) depth--;
-      if (depth > 0 && inner.type != TarsTypes.structBegin &&
-          inner.type != TarsTypes.structEnd) {
-        reader.skipField(inner.type);
-      }
-    }
-    return Uint8List.sublistView(reader.buf, start, reader.pos - 1);
   }
 
   void _emit(DanmakuMessage message) {
