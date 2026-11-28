@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:tallylive/core/feed_ui.dart';
 import 'package:tallylive/core/follows.dart';
-import 'package:tallylive/core/models.dart';
 import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/ui/components/atoms.dart';
 import 'package:tallylive/ui/components/ring_progress.dart';
 import 'package:tallylive/ui/components/toast.dart';
-import 'package:tallylive/ui/components/login_sheet.dart';
 import 'package:tallylive/ui/theme.dart';
 
 /// 左侧关注栏（对齐 DTV 的 FollowsList + Sidebar）。
@@ -454,13 +452,11 @@ class _SideAction extends StatefulWidget {
     required this.icon,
     required this.tooltip,
     this.onTap,
-    this.busy = false,
   });
 
   final IconData? icon;
   final String tooltip;
   final VoidCallback? onTap;
-  final bool busy;
 
   @override
   State<_SideAction> createState() => _SideActionState();
@@ -492,21 +488,13 @@ class _SideActionState extends State<_SideAction> {
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(6),
             ),
-            child: widget.busy
-                ? const Padding(
-                    padding: EdgeInsets.all(7),
-                    child: CircularProgressIndicator(
-                      strokeWidth: 1.6,
-                      color: TallyColors.signalBlue,
-                    ),
-                  )
-                : Icon(
-                    widget.icon,
-                    size: 15,
-                    color: _hovered && widget.onTap != null
-                        ? TallyColors.textPrimary
-                        : TallyColors.textTertiary,
-                  ),
+            child: Icon(
+              widget.icon,
+              size: 15,
+              color: _hovered && widget.onTap != null
+                  ? TallyColors.textPrimary
+                  : TallyColors.textTertiary,
+            ),
           ),
         ),
       ),
