@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:tallylive/core/follows.dart';
+import 'package:tallylive/core/models.dart';
 
 /// 局域网同步 —— **与 DTV 完全兼容**（可直接与 DTV 客户端互传）。
 ///
@@ -39,14 +40,56 @@ class LanSync {
   static const String payloadPath = '/dtv-sync/payload';
   static const String defaultToken = 'dtv';
 
-  static const String _followsKey = 'follows';
+  /// entries 的键名**必须与 DTV 的 localStorage 键完全一致**
+  /// （见 DTV `frontend/src/lib/storage.ts` 的 STORAGE_KEYS），
+  /// 否则 DTV 侧读不到我们的数据。
+  static const String _followsKey = 'followedStreamers';
   static const String _foldersKey = 'followFolders';
+  static const String _orderKey = 'followListOrder';
 
   /* ------------------------------------------------------------------ 导出 */
 
-  /// 构造 payload（与 DTV 同结构）。
+  /// 构造 payload（**entries 的键与值结构与 DTV 完全一致**）。
+  ///
+  /// DTV 侧的记录结构（`store.ts` / `FollowRecord`）：
+  /// ```ts
+  /// interface FollowRecord {
+  ///   id: string; platform: LivePlatform; nickname: string; title: string;
+  ///   avatar: string; viewers: number; isLive: boolean; followedAt: number;
+  /// }
+  /// interface FolderRecord { id: string; name: string; collapsed: boolean; keys: string[] }
+  /// ```
+  /// `keys` 里放的是 `platform:roomId` 形式的房间键。
   static Map<String, dynamic> buildPayload() {
     final store = FollowStore.instance;
+
+    final follows = [
+      for (final room in store.rooms)
+        {
+          'id': room.roomId,
+          'platform': room.platform.name,
+          'nickname': room.nickname,
+          'title': room.title,
+          'avatar': room.avatar,
+          'viewers': room.viewers,
+          'isLive': room.isLive,
+          'followedAt': 0,
+        },
+    ];
+
+    final folders = [
+      for (final group in store.groups)
+        {
+          'id': group.id,
+          'name': group.name,
+          'collapsed': false,
+          'keys': [
+            for (final room in store.rooms)
+              if (room.groupId == group.id) room.key,
+          ],
+        },
+    ];
+
     return {
       'kind': kind,
       'version': version,
@@ -56,22 +99,17 @@ class LanSync {
         'appVersion': '0.1.0',
       },
       'entries': {
-        // 房间：用竖线编码，DTV 侧按自己的格式解析；这里保持"可读字符串"
-        _followsKey: jsonEncode(
-          store.rooms.map((room) => room.encode()).toList(),
-        ),
-        _foldersKey: jsonEncode(
-          store.groups.map((group) => group.encode()).toList(),
-        ),
+        _followsKey: jsonEncode(follows),
+        _foldersKey: jsonEncode(folders),
+        _orderKey: jsonEncode([for (final room in store.rooms) room.key]),
       },
     };
   }
 
-  /// 构造 manifest（不含 entries，只有摘要，供对端预览）。
+  /// 构造 manifest（**与 DTV 的 LanSyncManifest 同结构**：只有摘要，不带 entries）。
   static Map<String, dynamic> buildManifest() {
     final store = FollowStore.instance;
     final payload = buildPayload();
-    final entries = payload['entries'] as Map<String, dynamic>;
     final totalBytes = utf8.encode(jsonEncode(payload)).length;
     return {
       'kind': kind,
@@ -86,34 +124,55 @@ class LanSync {
         'danmuKeywords': 0,
         'totalBytes': totalBytes,
       },
-      // 兼容性：把 entries 也带上，方便不认识 summary 的对端直接用
-      'entries': entries,
     };
   }
 
   /* ------------------------------------------------------------------ 导入 */
 
-  /// 从对端 payload 导入。
+  /// 从对端 payload 导入（**兼容 DTV 的 entries 结构**）。
   ///
-  /// 兼容两种形状：带 `entries` 的（DTV / 我们），以及直接是 entries 的。
+  /// 优先按 DTV 的 `entries`（键名 + 对象数组）解析；
+  /// 如果对端给的是 `{entries: {k: v}}` 之外的形状，也尽量兜住。
   static Future<int> importPayload(Map<String, dynamic> payload) async {
     final raw = payload['entries'];
     final entries = raw is Map ? Map<String, dynamic>.from(raw) : payload;
 
     final rooms = <FollowRoom>[];
     final groups = <FollowGroup>[];
+    // 房间键 → 分组 id（由 folders[].keys 反推）
+    final groupOfRoom = <String, String>{};
 
-    // follows：优先按 JSON 数组读；读不到就当竖线分隔的纯文本
-    final followsRaw = entries[_followsKey];
-    for (final item in _decodeList(followsRaw)) {
-      final room = FollowRoom.decode(item);
-      if (room != null) rooms.add(room);
+    // 1) 分组：{id, name, collapsed, keys}
+    for (final item in _decodeObjects(entries[_foldersKey])) {
+      final id = _str(item['id']);
+      final name = _str(item['name']);
+      if (id.isEmpty) continue;
+      groups.add(FollowGroup(id: id, name: name.isEmpty ? '未命名分组' : name));
+      for (final key in (item['keys'] as List? ?? const [])) {
+        groupOfRoom[_str(key)] = id;
+      }
     }
 
-    final foldersRaw = entries[_foldersKey];
-    for (final item in _decodeList(foldersRaw)) {
-      final group = FollowGroup.decode(item);
-      if (group != null) groups.add(group);
+    // 2) 关注记录：{id, platform, nickname, title, avatar, viewers, isLive}
+    for (final item in _decodeObjects(entries[_followsKey])) {
+      final roomId = _str(item['id']);
+      final platformName = _str(item['platform']);
+      if (roomId.isEmpty) continue;
+      final platform = _platformFromName(platformName);
+      if (platform == null) continue;
+      final room = FollowRoom(
+        platform: platform,
+        roomId: roomId,
+        nickname: _str(item['nickname']),
+        title: _str(item['title']),
+        avatar: _str(item['avatar']),
+        isLive: item['isLive'] == true,
+        viewers: item['viewers'] is num
+            ? (item['viewers'] as num).toInt()
+            : 0,
+        groupId: groupOfRoom['${platform.name}:$roomId'] ?? '',
+      );
+      rooms.add(room);
     }
 
     if (rooms.isEmpty && groups.isEmpty) {
@@ -123,31 +182,37 @@ class LanSync {
     return rooms.length;
   }
 
-  /// 把「JSON 数组字符串」或「纯文本列表」统一成 List&lt;String&gt;。
-  static List<String> _decodeList(Object? raw) {
-    if (raw == null) return const [];
-    if (raw is List) {
-      return raw.map((e) => e.toString()).toList();
+  static String _str(Object? raw) => raw == null ? '' : raw.toString();
+
+  /// 平台名 → 枚举（与 DTV 的 LIVE_PLATFORMS 字符串一致）。
+  static LivePlatform? _platformFromName(String name) {
+    for (final platform in LivePlatform.values) {
+      if (platform.name == name) return platform;
     }
-    final text = raw.toString().trim();
-    if (text.isEmpty) return const [];
-    // 先尝试 JSON 数组
-    if (text.startsWith('[')) {
+    return null;
+  }
+
+  /// 把 entries 里的值解析成对象列表。
+  ///
+  /// entries 的值是 **JSON 字符串**（DTV 的 localStorage 原样搬运），
+  /// 但也可能已经是数组（某些实现对 payload 做过解析）。
+  static List<Map<String, dynamic>> _decodeObjects(Object? raw) {
+    if (raw == null) return const [];
+    Object? parsed = raw;
+    if (raw is String) {
+      final text = raw.trim();
+      if (text.isEmpty) return const [];
       try {
-        final decoded = jsonDecode(text);
-        if (decoded is List) {
-          return decoded.map((e) => e.toString()).toList();
-        }
+        parsed = jsonDecode(text);
       } catch (_) {
-        // 落到纯文本分支
+        return const [];
       }
     }
-    // 纯文本：按行切（DTV 老版本的导出格式）
-    return text
-        .split(RegExp(r'[\r\n]+'))
-        .map((line) => line.trim())
-        .where((line) => line.isNotEmpty)
-        .toList();
+    if (parsed is! List) return const [];
+    return [
+      for (final item in parsed)
+        if (item is Map) Map<String, dynamic>.from(item),
+    ];
   }
 
   /* ------------------------------------------------------------------ 发现 */
