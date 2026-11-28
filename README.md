@@ -17,6 +17,7 @@
 | 弹幕渲染 | `canvas_danmaku`（CustomPainter，与 Video 同 Stack） |
 | 网络 | `dio` |
 | 桌面全屏 | `window_manager` |
+| JS 引擎 | `flutter_js`（QuickJS，仅抖音弹幕签名用） |
 | 平台协议 | 自研 Dart 实现，从 Go 版移植 |
 
 ## 进度
@@ -26,9 +27,13 @@
 | bilibili | ✅ | ✅ | ✅ | ✅ |
 | 斗鱼 | ✅ | ✅ | ✅ | ✅ |
 | 虎牙 | ✅ | ✅ | ✅ | ✅ |
-| 抖音 | ✅ | ✅ | ⬜ | — |
+| 抖音 | ✅ | ✅ | ✅ | — |
 
-抖音弹幕是 protobuf + gzip + 另一套 `sign.js` 签名，尚未移植（工厂里返回 `null`，界面退化成无弹幕）。
+四个平台的播放与弹幕均已接通。
+
+抖音弹幕的签名（X-MS-STUB）由字节的爬虫风控 SDK 生成，官方只提供混淆 JS，
+所有已知开源实现（DTV 用 goja、Simple Live 用 dart_quickjs）都是「丢给 JS 引擎跑」，
+因此本项目也引入 QuickJS（`flutter_js`）执行 DTV 的 `assets/douyin_sign.js`。
 
 ## 使用
 
@@ -66,7 +71,7 @@ flutter test
 - B 站：playinfo 地址拼接、WBI 签名、弹幕分包（含 zlib/brotli 嵌套与失步重同步）
 - 斗鱼：STT 包编解码、MD5 签名链、线路回退
 - 虎牙：TARS 编解码（整数压缩、扩展 tag、结构体、字节数组）
-- 抖音：a_bogus（SM3 / RC4 / 5 张自定义 base64 表 / 末组填充规则）
+- 抖音：a_bogus（SM3 / RC4 / 5 张自定义 base64 表 / 末组填充规则）、protobuf 编解码
 
 ## 协议溯源
 
@@ -78,6 +83,7 @@ flutter test
 | 交叉参考 | [xiaoyaocz/dart_simple_live](https://github.com/xiaoyaocz/dart_simple_live) | 活跃 |
 | B 站弹幕 | [xfgryujk/blivedm](https://github.com/xfgryujk/blivedm) | 活跃 |
 | 抖音弹幕 | [saermart/DouyinLiveWebFetcher](https://github.com/saermart/DouyinLiveWebFetcher) | 活跃 |
+| 抖音签名（算法不可读） | [ihmily/DouyinLiveRecorder](https://github.com/ihmily/DouyinLiveRecorder) | 活跃（仅取流） |
 | 虎牙 | [liuchuancong/pure_live](https://github.com/liuchuancong/pure_live) | 活跃 |
 
 ## 声明
