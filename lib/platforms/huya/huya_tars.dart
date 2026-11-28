@@ -307,6 +307,13 @@ class TarsReader {
     return value;
   }
 
+  /// 按 tag 读 int64（内部统一按 int 处理，Dart 的 int 是 64 位）。
+  int readInt64Tag(int tag, int def) {
+    final head = find(tag);
+    if (head == null) return def;
+    return _intFromHead(head, def);
+  }
+
   int readInt32Tag(int tag, int def) {
     final head = find(tag);
     if (head == null) return def;
