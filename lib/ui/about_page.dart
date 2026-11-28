@@ -153,3 +153,43 @@ class _Card extends StatelessWidget {
     );
   }
 }
+
+/// 关于页的「键：值」行。
+class _KV extends StatelessWidget {
+  const _KV(this.key_, this.value);
+
+  final String key_;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(
+              key_,
+              style: const TextStyle(
+                color: TallyColors.textTertiary,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                color: TallyColors.textSecondary,
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
