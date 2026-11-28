@@ -16,14 +16,7 @@ import 'package:tallylive/ui/theme.dart';
 /// - 自绘窗口按钮（最小化/最大化/关闭）没做——我们用的是系统标题栏，
 ///   再做一套会和系统按钮重复。
 class Navbar extends StatelessWidget {
-  const Navbar({
-    super.key,
-    required this.tabIndex,
-    required this.onTabSelected,
-  });
-
-  final int tabIndex;
-  final ValueChanged<int> onTabSelected;
+  const Navbar({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -35,39 +28,15 @@ class Navbar extends StatelessWidget {
         border: Border(bottom: BorderSide(color: TallyColors.hairline)),
       ),
       child: Row(
-        children: [
-          // 平台分段（只在「直播」页有意义）
-          if (tabIndex == 0) const PlatformTabs(),
-          if (tabIndex != 0) ...[
-            Text(
-              ['直播', '设置', '关于'][tabIndex],
-              style: TallyType.pageTitle,
-            ),
-          ],
-          const Spacer(),
-          if (tabIndex == 0) ...[
-            const _SearchBox(),
-            const SizedBox(width: TallySpace.md),
-          ],
-          _ToolButton(
-            icon: Icons.tune,
-            tooltip: '设置',
-            active: tabIndex == 1,
-            onTap: () => onTabSelected(1),
-          ),
-          const SizedBox(width: TallySpace.xs),
-          _ToolButton(
-            icon: Icons.info_outline,
-            tooltip: '关于',
-            active: tabIndex == 2,
-            onTap: () => onTabSelected(2),
-          ),
+        children: const [
+          PlatformTabs(),
+          Spacer(),
+          _SearchBox(),
         ],
       ),
     );
   }
 }
-
 /// 平台分段控件：胶囊外形 + 凹槽底 + 选中项抬升。
 class PlatformTabs extends StatelessWidget {
   const PlatformTabs({super.key});
@@ -187,61 +156,6 @@ class _SearchBox extends StatelessWidget {
                 ),
                 Icon(Icons.search, size: 17, color: TallyColors.textSecondary),
               ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ToolButton extends StatefulWidget {
-  const _ToolButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-    this.active = false,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-  final bool active;
-
-  @override
-  State<_ToolButton> createState() => _ToolButtonState();
-}
-
-class _ToolButtonState extends State<_ToolButton> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: widget.tooltip,
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: TallyDuration.fast,
-            width: 38,
-            height: 38,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: widget.active || _hovered
-                  ? TallyColors.raised
-                  : Colors.transparent,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              widget.icon,
-              size: 18,
-              color: widget.active
-                  ? TallyColors.textPrimary
-                  : TallyColors.textSecondary,
             ),
           ),
         ),

@@ -51,10 +51,10 @@ class AppSettings extends ChangeNotifier {
   static const int _maxRecentRooms = 20;
 
   bool _danmakuEnabled = true;
-  double _danmakuFontSize = 18;
-  double _danmakuOpacity = 0.95;
-  double _danmakuDuration = 8;
-  double _danmakuArea = 0.55;
+  double _danmakuFontSize = 20;
+  double _danmakuOpacity = 1;
+  double _danmakuDuration = 10;
+  double _danmakuArea = 0.5;
   List<RecentRoom> _recentRooms = const [];
 
   bool get danmakuEnabled => _danmakuEnabled;
@@ -110,25 +110,25 @@ class AppSettings extends ChangeNotifier {
   }
 
   Future<void> setDanmakuFontSize(double value) async {
-    _danmakuFontSize = value.clamp(12, 32).toDouble();
+    _danmakuFontSize = value.clamp(14, 30).toDouble();
     notifyListeners();
     await _save();
   }
 
   Future<void> setDanmakuOpacity(double value) async {
-    _danmakuOpacity = value.clamp(0.3, 1.0).toDouble();
+    _danmakuOpacity = value.clamp(0.2, 1.0).toDouble();
     notifyListeners();
     await _save();
   }
 
   Future<void> setDanmakuDuration(double value) async {
-    _danmakuDuration = value.clamp(4, 16).toDouble();
+    _danmakuDuration = value.clamp(5, 20).toDouble();
     notifyListeners();
     await _save();
   }
 
   Future<void> setDanmakuArea(double value) async {
-    _danmakuArea = value.clamp(0.2, 1.0).toDouble();
+    _danmakuArea = value.clamp(0.25, 1.0).toDouble();
     notifyListeners();
     await _save();
   }

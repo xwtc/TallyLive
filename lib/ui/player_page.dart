@@ -511,7 +511,12 @@ class _PlayerPageState extends State<PlayerPage> {
                   );
                 },
               ),
-              if (widget.lines.length > 1) _buildLineMenu(),
+              IconButton(
+                onPressed: _openDanmakuSettings,
+                icon: const Icon(Icons.tune, size: 18),
+                color: TallyColors.textSecondary,
+                tooltip: '弹幕设置',
+              ),              if (widget.lines.length > 1) _buildLineMenu(),
               if (widget.variants.length > 1) _buildQualityMenu(),
               IconButton(
                 onPressed: () {
@@ -541,6 +546,18 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
+  /// 弹幕设置面板（对齐 DTV 的 DanmuSettingsControl：内联在播放页，没有独立设置页）。
+  Future<void> _openDanmakuSettings() async {
+    _showControls();
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: TallyColors.raised,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      builder: (context) => const DanmakuSettingsSheet(),
+    );
+  }
   /// 线路（CDN）下拉。切线路只会换地址，不会重新取流。
   Widget _buildLineMenu() {
     final current = widget.lines.firstWhere(
@@ -731,6 +748,145 @@ class _AutoHide extends StatelessWidget {
           child: child,
         ),
       ),
+    );
+  }
+}
+
+/// 弹幕设置面板。
+///
+/// 参数范围与默认值对齐 DTV 的 `danmuSettings.ts`：
+/// 字号 14–30（步 2）、不透明度 0.2–1（步 0.05）、
+/// 存活时间 5–20s（步 0.5）、显示区域 0.25/0.5/0.75/1。
+///
+/// 这是 DTV 的做法：设置是**播放页的内联控件**，不做独立设置页
+/// （之前那版单独做了设置页，和这里的弹幕设置重复，已删除）。
+class DanmakuSettingsSheet extends StatelessWidget {
+  const DanmakuSettingsSheet({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: ListenableBuilder(
+        listenable: AppSettings.instance,
+        builder: (context, _) {
+          final settings = AppSettings.instance;
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(
+                TallySpace.lg, TallySpace.md, TallySpace.lg, TallySpace.lg),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text('弹幕设置', style: TallyType.pageTitle.copyWith(fontSize: 15)),
+                    const Spacer(),
+                    Row(
+                      children: [
+                        Text(settings.danmakuEnabled ? '已开启' : '已关闭',
+                            style: TallyType.meta),
+                        Switch(
+                          value: settings.danmakuEnabled,
+                          activeThumbColor: TallyColors.signalBlue,
+                          onChanged: settings.setDanmakuEnabled,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: TallySpace.sm),
+                _SettingSlider(
+                  label: '字号',
+                  value: settings.danmakuFontSize,
+                  min: 14,
+                  max: 30,
+                  divisions: 8,
+                  suffix: '${settings.danmakuFontSize.round()}',
+                  onChanged: settings.setDanmakuFontSize,
+                ),
+                _SettingSlider(
+                  label: '不透明度',
+                  value: settings.danmakuOpacity,
+                  min: 0.2,
+                  max: 1,
+                  divisions: 16,
+                  suffix: '${(settings.danmakuOpacity * 100).round()}%',
+                  onChanged: settings.setDanmakuOpacity,
+                ),
+                _SettingSlider(
+                  label: '存活时间',
+                  value: settings.danmakuDuration,
+                  min: 5,
+                  max: 20,
+                  divisions: 30,
+                  suffix: '${settings.danmakuDuration.toStringAsFixed(1)}s',
+                  onChanged: settings.setDanmakuDuration,
+                ),
+                _SettingSlider(
+                  label: '显示区域',
+                  value: settings.danmakuArea,
+                  min: 0.25,
+                  max: 1,
+                  divisions: 3,
+                  suffix: '${(settings.danmakuArea * 100).round()}%',
+                  onChanged: settings.setDanmakuArea,
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SettingSlider extends StatelessWidget {
+  const _SettingSlider({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.divisions,
+    required this.suffix,
+    required this.onChanged,
+  });
+
+  final String label;
+  final double value;
+  final double min;
+  final double max;
+  final int divisions;
+  final String suffix;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 68,
+          child: Text(label, style: TallyType.subtitle),
+        ),
+        Expanded(
+          child: Slider(
+            value: value.clamp(min, max),
+            min: min,
+            max: max,
+            divisions: divisions,
+            onChanged: onChanged,
+          ),
+        ),
+        SizedBox(
+          width: 48,
+          child: Text(
+            suffix,
+            textAlign: TextAlign.right,
+            style: TallyType.numberSmall.copyWith(
+              color: TallyColors.textSecondary,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

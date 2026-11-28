@@ -37,6 +37,15 @@ class TallyColors {
   /// 风控 / 降级 / 弱网（不装饰）。
   static const Color stateAmber = Color(0xFFC69233);
 
+  /// 强调色浅底（分类胶囊、选中 pill 的底）。
+  static const Color accentSoft = Color(0x294A7FB5);
+
+  /// 强调色上的文字/图标（浅蓝，保证在 accentSoft 上可读）。
+  static const Color accentInk = Color(0xFF9CC0E4);
+
+  /// 封面上的徽章底（对齐 DTV：rgba(8,9,11,.78)）。
+  static const Color badgeScrim = Color(0xC708090B);
+
   /// 卡片顶部受光边（1px 内阴影的替代：细高光让卡片不"塑料"）。
   static const Color cardHighlight = Color(0x0AFFFFFF);
 }
@@ -72,13 +81,16 @@ class TallySize {
   const TallySize._();
 
   static const double navbar = 64;
-  static const double sidebar = 224;
-  static const double sidebarCollapsed = 72;
+  static const double sidebar = 240;
+  static const double sidebarCollapsed = 78;
 
   /// 主播卡片最小宽度（网格 auto-fill 的下限）。
   static const double cardMin = 220;
   static const double cardMinCollapsed = 196;
   static const double gridGap = 16;
+
+  /// 卡片信息区内边距（对齐 DTV 的 13/12/15）。
+  static const EdgeInsets cardMetaPadding = EdgeInsets.fromLTRB(12, 13, 12, 15);
 }
 
 /// 动效时长（对齐 DTV 的 dur-1..dur-3）。
