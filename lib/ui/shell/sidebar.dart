@@ -27,7 +27,7 @@ class _SidebarState extends State<Sidebar> {
 
   @override
   Widget build(BuildContext context) {
-    final width = _collapsed ? 72.0 : 240.0;
+    final width = _collapsed ? TallySize.sidebarCollapsed : TallySize.sidebar;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
       curve: Curves.easeOut,

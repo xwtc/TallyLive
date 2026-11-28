@@ -2,23 +2,31 @@ import 'package:flutter/material.dart';
 
 /// 夜间导播台配色。
 ///
-/// 严格约束（见 UI-DESIGN §5.3）：
-/// - `tallyRed` **只用于**「正在直播」（LIVE 圆点/徽章/录制态），
-///   不得用于按钮、选中、强调文字；
-/// - `signalBlue` 只用于可交互/选中/链接/聚焦；
-/// - `stateAmber` 只用于重连/弱网等功能性提示；
+/// **色板是我们自己的**（不照抄 DTV 的荧光绿），但中性灰阶与 DTV 的
+/// 明度关系对齐——卡片比地面亮一档、文字比背景亮两档，
+/// 这样整页看起来"有层次"而不是一团灰。
+///
+/// 用法纪律：
+/// - [tallyRed] **只表示"正在直播"**（LIVE 点/徽章/录制态）；
+/// - [signalBlue] 只表示可交互/选中/链接；
+/// - [stateAmber] 只表示风控/降级/弱网这类功能性状态；
 /// - 其余全部是中性灰阶。
 class TallyColors {
   const TallyColors._();
 
-  static const Color base = Color(0xFF0E1012);
-  static const Color surface = Color(0xFF16191C);
-  static const Color raised = Color(0xFF1F2327);
-  static const Color hairline = Color(0xFF2C3137);
+  static const Color base = Color(0xFF0A0B0D);
+  static const Color surface = Color(0xFF14161B);
+  static const Color raised = Color(0xFF1C1F25);
 
-  static const Color textPrimary = Color(0xFFDCDDDD);
-  static const Color textSecondary = Color(0xFF8A9098);
-  static const Color textTertiary = Color(0xFF5B6169);
+  /// 分隔线（比 raised 再亮一点，1px 才看得见）。
+  static const Color hairline = Color(0xFF262A31);
+
+  /// 输入框/分段控件的底（比 surface 略暗，形成"凹槽"感）。
+  static const Color inset = Color(0xFF16181D);
+
+  static const Color textPrimary = Color(0xFFF4F4EF);
+  static const Color textSecondary = Color(0xFFA7AAB2);
+  static const Color textTertiary = Color(0xFF8B909A);
 
   /// ON AIR 唯一用色。
   static const Color tallyRed = Color(0xFFD93F46);
@@ -26,11 +34,14 @@ class TallyColors {
   /// 可交互 / 选中 / 链接。
   static const Color signalBlue = Color(0xFF4A7FB5);
 
-  /// 弱网 / 重连等功能性状态（不装饰）。
+  /// 风控 / 降级 / 弱网（不装饰）。
   static const Color stateAmber = Color(0xFFC69233);
+
+  /// 卡片顶部受光边（1px 内阴影的替代：细高光让卡片不"塑料"）。
+  static const Color cardHighlight = Color(0x0AFFFFFF);
 }
 
-/// 间距阶（UI-DESIGN §5.1）。只用这几档，不要临时拍数字。
+/// 间距阶。只用这几档，不要临时拍数字。
 class TallySpace {
   const TallySpace._();
 
@@ -40,78 +51,108 @@ class TallySpace {
   static const double lg = 16;
   static const double xl = 24;
   static const double xxl = 32;
+
+  /// 页面左右内边距（对齐 DTV 的 14px）。
+  static const double page = 14;
 }
 
-/// 圆角。
+/// 圆角（对齐 DTV：卡片 12、胶囊 999）。
 class TallyRadius {
   const TallyRadius._();
 
-  static const double card = 6;
-  static const double badge = 4;
-  static const double input = 6;
+  static const double card = 12;
+  static const double badge = 6;
+  static const double input = 999;
+  static const double pill = 999;
   static const Radius cardRadius = Radius.circular(card);
 }
 
-/// 布局断点（UI-DESIGN §3.3）。
+/// 固定尺寸（对齐 DTV 的 --navbar-height / --sidebar-width）。
+class TallySize {
+  const TallySize._();
+
+  static const double navbar = 64;
+  static const double sidebar = 224;
+  static const double sidebarCollapsed = 72;
+
+  /// 主播卡片最小宽度（网格 auto-fill 的下限）。
+  static const double cardMin = 220;
+  static const double cardMinCollapsed = 196;
+  static const double gridGap = 16;
+}
+
+/// 动效时长（对齐 DTV 的 dur-1..dur-3）。
+class TallyDuration {
+  const TallyDuration._();
+
+  static const Duration fast = Duration(milliseconds: 110);
+  static const Duration base = Duration(milliseconds: 190);
+  static const Duration slow = Duration(milliseconds: 280);
+}
+
+/// 布局断点。
 class TallyBreakpoints {
   const TallyBreakpoints._();
 
-  /// < 600：手机。单列 + 底部 Tab + 平台收成下拉。
+  /// < 600：手机。单列 + 底部 Tab。
   static const double compact = 600;
 
-  /// >= 1024：桌面。关注 rail + 顶部平台分段。
+  /// >= 1024：桌面。关注栏 + 顶栏 + 网格。
   static const double expanded = 1024;
 }
 
-/// 字号阶梯（UI-DESIGN §5.2）。
-///
-/// 数字统一用 tabular figures，保证人气/时长纵向对齐。
+/// 字号阶梯（对齐 DTV：11/12/13/15/18）。
 class TallyType {
   const TallyType._();
 
-  /// 页面标题 20/w600
+  /// 页面标题 18/w600
   static const TextStyle pageTitle = TextStyle(
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: FontWeight.w600,
     color: TallyColors.textPrimary,
   );
 
-  /// 区块标题 13/w600/字距 0.6
+  /// 区块标题 13/w600
   static const TextStyle sectionTitle = TextStyle(
     fontSize: 13,
     fontWeight: FontWeight.w600,
-    letterSpacing: 0.6,
     color: TallyColors.textSecondary,
   );
 
-  /// 昵称（主信息）15/w500
+  /// 卡片/列表主信息 15/w500
   static const TextStyle nickname = TextStyle(
     fontSize: 15,
     fontWeight: FontWeight.w500,
     color: TallyColors.textPrimary,
   );
 
-  /// 标题/副信息 13/w400
+  /// 副信息 13/w400
   static const TextStyle subtitle = TextStyle(
     fontSize: 13,
     color: TallyColors.textSecondary,
   );
 
-  /// 元信息（分区/时间）11/w400
+  /// 元信息 12/w400
   static const TextStyle meta = TextStyle(
+    fontSize: 12,
+    color: TallyColors.textTertiary,
+  );
+
+  /// 小字 11/w400
+  static const TextStyle tiny = TextStyle(
     fontSize: 11,
     color: TallyColors.textTertiary,
   );
 
-  /// 数字（人气）14/w500 tabular
+  /// 数字（人气）13/w500 tabular
   static const TextStyle number = TextStyle(
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: FontWeight.w500,
     color: TallyColors.textPrimary,
     fontFeatures: [FontFeature.tabularFigures()],
   );
 
-  /// 小号数字（徽章里）11/w500 tabular
+  /// 小号数字（徽章）11/w500 tabular
   static const TextStyle numberSmall = TextStyle(
     fontSize: 11,
     fontWeight: FontWeight.w500,
@@ -119,11 +160,11 @@ class TallyType {
     fontFeatures: [FontFeature.tabularFigures()],
   );
 
-  /// LIVE 徽章文字 10/w600/字距 0.8
+  /// LIVE 徽章文字 11/w700/字距 0.6
   static const TextStyle liveBadge = TextStyle(
-    fontSize: 10,
-    fontWeight: FontWeight.w600,
-    letterSpacing: 0.8,
+    fontSize: 11,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 0.6,
     color: TallyColors.tallyRed,
   );
 }
@@ -132,39 +173,51 @@ class TallyType {
 class TallyDecor {
   const TallyDecor._();
 
-  /// 卡片：surface 底 + hairline 边 + 6px 圆角（不用阴影）。
+  /// 卡片：surface 底 + 12px 圆角 + 顶部细高光（不用描边、不用阴影）。
   static BoxDecoration card({Color? color}) => BoxDecoration(
         color: color ?? TallyColors.surface,
         borderRadius: BorderRadius.circular(TallyRadius.card),
-        border: Border.all(color: TallyColors.hairline),
+        border: Border(
+          top: BorderSide(color: TallyColors.cardHighlight),
+        ),
       );
 
-  /// 选中态：raised 底 + 1px 蓝描边 + 主色文字。
-  ///
-  /// 刻意不用高饱和填充（荧光绿/亮蓝块），见 UI-DESIGN §5.3。
+  /// 卡片外层（封面贴边用）：只裁切、不画边框。
+  static BoxDecoration cardPlain = BoxDecoration(
+    color: TallyColors.surface,
+    borderRadius: BorderRadius.circular(TallyRadius.card),
+  );
+
+  /// 选中态：raised 底 + 1px 蓝描边。
   static BoxDecoration selected = BoxDecoration(
     color: TallyColors.raised,
-    borderRadius: BorderRadius.circular(TallyRadius.card),
+    borderRadius: BorderRadius.circular(TallyRadius.pill),
     border: Border.all(color: TallyColors.signalBlue),
   );
 
-  /// 未选中态（可点击的 chip/段）。
+  /// 未选中（可点但无边框）。
   static BoxDecoration idle = BoxDecoration(
     color: Colors.transparent,
-    borderRadius: BorderRadius.circular(TallyRadius.card),
+    borderRadius: BorderRadius.circular(TallyRadius.pill),
     border: Border.all(color: Colors.transparent),
+  );
+
+  /// 凹槽底（分段控件、搜索框外层）。
+  static BoxDecoration inset = BoxDecoration(
+    color: TallyColors.inset,
+    borderRadius: BorderRadius.circular(TallyRadius.pill),
   );
 
   /// 徽章底（压在封面上的深色半透明）。
   static BoxDecoration badgeOverlay = BoxDecoration(
     color: Colors.black.withValues(alpha: 0.62),
-    borderRadius: BorderRadius.circular(TallyRadius.badge),
+    borderRadius: BorderRadius.circular(TallyRadius.pill),
   );
 
-  /// LIVE 徽章底（红 12%）。
+  /// LIVE 徽章底（红 16%）。
   static BoxDecoration liveBadgePill = BoxDecoration(
-    color: TallyColors.tallyRed.withValues(alpha: 0.16),
-    borderRadius: BorderRadius.circular(TallyRadius.badge),
+    color: TallyColors.tallyRed.withValues(alpha: 0.18),
+    borderRadius: BorderRadius.circular(TallyRadius.pill),
   );
 }
 
@@ -183,9 +236,10 @@ ThemeData buildTallyTheme() {
       onSurface: TallyColors.textPrimary,
     ),
     appBarTheme: const AppBarTheme(
-      backgroundColor: TallyColors.surface,
+      backgroundColor: TallyColors.base,
       foregroundColor: TallyColors.textPrimary,
       elevation: 0,
+      centerTitle: false,
     ),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: TallyColors.surface,

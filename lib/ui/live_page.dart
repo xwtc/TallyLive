@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:tallylive/core/follows.dart';
+import 'package:tallylive/core/feed_ui.dart';
 import 'package:tallylive/core/live_repository.dart';
 import 'package:tallylive/core/models.dart';
 import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/ui/components/category_bar.dart';
-import 'package:tallylive/ui/components/navigation.dart';
+import 'package:tallylive/ui/shell/navbar.dart';
 import 'package:tallylive/ui/components/section_header.dart';
 import 'package:tallylive/ui/components/states.dart';
 import 'package:tallylive/ui/components/streamer_card.dart';
@@ -33,7 +34,8 @@ class LivePage extends StatefulWidget {
 class _LivePageState extends State<LivePage> {
   late final LiveRepository _repo = widget.repository ?? createLiveRepository();
 
-  late LivePlatform _platform = _repo.supportedPlatforms.first;
+  late LivePlatform _platform =
+      FeedUi.instance.platform ?? _repo.supportedPlatforms.first;
 
   final ScrollController _scroll = ScrollController();
 
@@ -59,12 +61,24 @@ class _LivePageState extends State<LivePage> {
   @override
   void initState() {
     super.initState();
+    FeedUi.instance.ensurePlatforms(_repo.supportedPlatforms);
+    _platform = FeedUi.instance.platform ?? _repo.supportedPlatforms.first;
+    FeedUi.instance.addListener(_onFeedChanged);
     _scroll.addListener(_onScroll);
+    _bootstrap();
+  }
+
+  /// 顶栏切换平台后，内容区跟着换数据（同一个状态源，避免 tab 与列表不一致）。
+  void _onFeedChanged() {
+    final next = FeedUi.instance.platform;
+    if (next == null || next == _platform) return;
+    setState(() => _platform = next);
     _bootstrap();
   }
 
   @override
   void dispose() {
+    FeedUi.instance.removeListener(_onFeedChanged);
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
     super.dispose();
@@ -192,12 +206,6 @@ class _LivePageState extends State<LivePage> {
     return text.length > 120 ? '${text.substring(0, 120)}…' : text;
   }
 
-  void _selectPlatform(LivePlatform platform) {
-    if (platform == _platform) return;
-    setState(() => _platform = platform);
-    _bootstrap();
-  }
-
   void _selectGroup(String groupId) {
     if (groupId == _groupId) return;
     final group = _groups.firstWhere(
@@ -283,34 +291,13 @@ class _LivePageState extends State<LivePage> {
 
     return Column(
       children: [
-        // 平台筛选
+        // 平台筛选：桌面由顶栏负责（同一个 FeedUi 状态源），窄屏用下拉
         Padding(
-          padding: EdgeInsets.fromLTRB(
-            TallySpace.md,
-            isCompact ? TallySpace.sm : TallySpace.sm,
-            TallySpace.md,
-            TallySpace.xs,
-          ),
+          padding: const EdgeInsets.fromLTRB(
+              TallySpace.page, TallySpace.sm, TallySpace.page, TallySpace.xs),
           child: Row(
             children: [
-              if (isCompact)
-                PlatformDropdown(
-                  platforms: _repo.supportedPlatforms,
-                  selected: _platform,
-                  onSelected: (platform) {
-                    if (platform != null) _selectPlatform(platform);
-                  },
-                  includeAll: false,
-                )
-              else
-                PlatformSegments(
-                  platforms: _repo.supportedPlatforms,
-                  selected: _platform,
-                  onSelected: (platform) {
-                    if (platform != null) _selectPlatform(platform);
-                  },
-                  includeAll: false,
-                ),
+              if (isCompact) const NavbarPlatformDropdown(),
               const Spacer(),
               IconButton(
                 tooltip: '刷新',
@@ -320,8 +307,7 @@ class _LivePageState extends State<LivePage> {
               ),
             ],
           ),
-        ),
-        // 分区栏（两行，溢出有「全部」）
+        ),        // 分区栏（两行，溢出有「全部」）
         if (_booting && _groups.isEmpty)
           _categorySkeleton()
         else
@@ -433,10 +419,10 @@ class _LivePageState extends State<LivePage> {
     return GridView.builder(
       padding: const EdgeInsets.all(TallySpace.md),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 320,
-        mainAxisSpacing: TallySpace.lg,
-        crossAxisSpacing: TallySpace.md,
-        childAspectRatio: 1.32,
+        maxCrossAxisExtent: TallySize.cardMin,
+        mainAxisSpacing: TallySize.gridGap,
+        crossAxisSpacing: TallySize.gridGap,
+        childAspectRatio: 0.78,
       ),
       itemCount: 8,
       itemBuilder: (_, __) => const SkeletonCard(),
