@@ -11,10 +11,10 @@ import 'fakes.dart';
 void main() {
   Widget harness(Widget child) => MaterialApp(
         theme: buildTallyTheme(),
-        home: child,
+        home: Scaffold(body: child),
       );
 
-  testWidgets('有数据时渲染标题、tally 行、分区 chip 与卡片', (tester) async {
+  testWidgets('有数据时渲染 tally 行、分区 chip 与卡片', (tester) async {
     await tester.pumpWidget(harness(
       LivePage(
         repository: FakeLiveRepository(streamers: fakeStreamers(count: 6)),
@@ -22,10 +22,11 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('TallyLive · 在播'), findsOneWidget);
+    // 标题已移到壳层导航栏（AppShell），本页面只负责内容区
     expect(find.text('正在直播'), findsOneWidget);
     expect(find.text('平台精选'), findsOneWidget);
-    // 分区 chip（来自假分区表）
+    // 分区栏：一级分组 + 二级分区
+    expect(find.text('网游'), findsWidgets);
     expect(find.text('英雄联盟'), findsWidgets);
     // 主播卡片
     expect(find.text('主播0'), findsOneWidget);
