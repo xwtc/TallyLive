@@ -311,23 +311,27 @@ class _LivePageState extends State<LivePage> {
 
     return Column(
       children: [
-        // 平台筛选：桌面由顶栏负责（同一个 FeedUi 状态源），窄屏用下拉
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-              TallySpace.page, TallySpace.sm, TallySpace.page, TallySpace.xs),
-          child: Row(
-            children: [
-              if (isCompact) const NavbarPlatformDropdown(),
-              const Spacer(),
-              IconButton(
-                tooltip: '刷新',
-                onPressed: _booting ? null : () => _bootstrap(keepContent: true),
-                icon: const Icon(Icons.refresh, size: 18),
-                color: TallyColors.textSecondary,
-              ),
-            ],
-          ),
-        ),        // 分区栏（两行，溢出有「全部」）
+        // 桌面：平台切换在顶栏（同一个 FeedUi）、刷新在「平台精选」标题右侧，
+        // 这里不再单独占一行（之前那行只剩一个刷新图标，看着很空）。
+        // 窄屏：顶栏没有分段控件，用下拉切换平台，刷新跟着它放一起。
+        if (isCompact)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+                TallySpace.page, TallySpace.sm, TallySpace.page, 0),
+            child: Row(
+              children: [
+                const NavbarPlatformDropdown(),
+                const Spacer(),
+                IconButton(
+                  tooltip: '刷新',
+                  onPressed:
+                      _booting ? null : () => _bootstrap(keepContent: true),
+                  icon: const Icon(Icons.refresh, size: 18),
+                  color: TallyColors.textSecondary,
+                ),
+              ],
+            ),
+          ),        // 分区栏（两行，溢出有「全部」）
         if (_booting && _groups.isEmpty)
           _categorySkeleton()
         else
