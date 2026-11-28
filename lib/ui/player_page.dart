@@ -86,6 +86,9 @@ class _PlayerPageState extends State<PlayerPage> {
   /// 右侧弹幕列表面板（对齐 DTV 的 DanmuPanel）。
   bool _danmuPanelOpen = false;
 
+  /// 弹幕面板宽度（可拖，范围对齐 DTV 的 168~320）。
+  double _danmuPanelWidth = 196;
+
   @override
   void initState() {
     super.initState();
@@ -268,33 +271,42 @@ class _PlayerPageState extends State<PlayerPage> {
       body: MouseRegion(
         // 桌面端：鼠标一动就显示控件
         onHover: (_) => _showControls(),
-        child: Stack(
-          fit: StackFit.expand,
+        child: Column(
           children: [
-            // 弹幕面板打开时画面与面板并排（对齐 DTV）：
-            // 面板占右侧固定宽度，画面在剩余空间里按比例 letterbox。
-            // 之前面板绝对定位覆盖在画面上，既挡内容又和底部控件条叠在一起。
-            Row(
-              children: [
-                Expanded(child: _buildStage()),
-                if (_danmuPanelOpen)
-                  DanmuPanel(
-                    stream: _danmaku?.messages ??
-                        Stream<DanmakuMessage>.empty(),
-                    errorHint: _danmakuError,
-                    onClose: () => setState(() => _danmuPanelOpen = false),
+            // 上半：画面 + 右侧弹幕栏（对齐 DTV 的 playerBody）
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: _buildStage()),
+                      if (_danmuPanelOpen)
+                        DanmuPanel(
+                          stream: _danmaku?.messages ??
+                              Stream<DanmakuMessage>.empty(),
+                          errorHint: _danmakuError,
+                          width: _danmuPanelWidth,
+                          onResize: (width) =>
+                              setState(() => _danmuPanelWidth = width),
+                          onClose: () =>
+                              setState(() => _danmuPanelOpen = false),
+                        ),
+                    ],
                   ),
-              ],
-            ),
-            _buildTopOverlay(),
-            _buildControlBar(),
-            if (kDiagnosticsEnabled && _showStats)
-              Positioned(
-                left: 0,
-                right: _danmuPanelOpen ? 244 : 0,
-                bottom: 76,
-                child: _buildStatsPanel(),
+                  _buildTopOverlay(),
+                  if (kDiagnosticsEnabled && _showStats)
+                    Positioned(
+                      left: 0,
+                      right: _danmuPanelOpen ? _danmuPanelWidth + 5 : 0,
+                      bottom: 8,
+                      child: _buildStatsPanel(),
+                    ),
+                ],
               ),
+            ),
+            // 下半：控件条**横跨整个宽度**（DTV 的 dock 也是整行）
+            _buildControlBar(),
           ],
         ),
       ),
@@ -585,11 +597,9 @@ class _PlayerPageState extends State<PlayerPage> {
   /* --------------------------------------------------------------- 底部控制条 */
 
   Widget _buildControlBar() {
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 0,
-      child: _AutoHide(
+    // 横跨整个宽度（对齐 DTV 的 dock）；它是 Column 的下半部分，
+    // 弹幕面板不会盖到它。
+    return _AutoHide(
         visible: _controlsVisible,
         alignment: Alignment.bottomCenter,
         // 对齐 DTV：控件层**没有实心背景**，直接浮在画面上；

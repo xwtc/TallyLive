@@ -16,17 +16,22 @@ class DanmuPanel extends StatefulWidget {
   const DanmuPanel({
     super.key,
     required this.stream,
-    this.width = 240,
+    this.width = 196,
     this.errorHint,
     this.onClose,
+    this.onResize,
   });
 
   final Stream<DanmakuMessage> stream;
+  /// 面板宽度（对齐 DTV：默认 196，可拖 168~320）。
   final double width;
 
   /// 连接失败原因（非空时替代「正在连接」显示，避免把风控误认为渲染问题）。
   final String? errorHint;
   final VoidCallback? onClose;
+
+  /// 拖拽左侧手柄调整宽度（对齐 DTV：168~320）。
+  final ValueChanged<double>? onResize;
 
   @override
   State<DanmuPanel> createState() => _DanmuPanelState();
@@ -34,6 +39,10 @@ class DanmuPanel extends StatefulWidget {
 
 class _DanmuPanelState extends State<DanmuPanel> {
   static const int _maxMessages = 200;
+
+  /// 面板宽度范围（对齐 DTV 的 PANEL_WIDTH_MIN / MAX）。
+  static const double _panelWidthMin = 168;
+  static const double _panelWidthMax = 320;
 
   final List<DanmakuMessage> _messages = [];
   final ScrollController _scroll = ScrollController();
@@ -142,10 +151,35 @@ class _DanmuPanelState extends State<DanmuPanel> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: widget.width,
-      color: TallyColors.base,
-      child: Column(
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // 左边缘拖拽手柄（DTV 的 .resizer）
+        if (widget.onResize != null)
+          MouseRegion(
+            cursor: SystemMouseCursors.resizeLeftRight,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragUpdate: (details) {
+                final next = (widget.width - details.delta.dx)
+                    .clamp(_panelWidthMin, _panelWidthMax);
+                widget.onResize!(next);
+              },
+              child: Container(
+                width: 5,
+                color: Colors.transparent,
+                alignment: Alignment.center,
+                child: Container(
+                  width: 1,
+                  color: TallyColors.hairline,
+                ),
+              ),
+            ),
+          ),
+        Container(
+          width: widget.width,
+          color: TallyColors.base,
+          child: Column(
         children: [
           // 头部
           SizedBox(
@@ -225,7 +259,9 @@ class _DanmuPanelState extends State<DanmuPanel> {
             ),
           ),
         ],
-      ),
+          ),
+        ),
+      ],
     );
   }
 }
