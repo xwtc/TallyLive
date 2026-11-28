@@ -141,3 +141,95 @@ class StreamInfoResult {
     return filtered.isEmpty ? lines : filtered;
   }
 }
+
+/* ------------------------------------------------------------------ 列表页模型 */
+/* 以下字段与 DTV internal/platforms/common/types.go 一一对应。              */
+/* 页面只依赖这些模型；Mock 与真实实现返回同一套结构，接功能时不用改 UI。      */
+
+/// 一级分区下的二级分区（分区页的条目）。
+class Category {
+  const Category({required this.id, required this.name});
+
+  final String id;
+  final String name;
+}
+
+/// 分区分组（斗鱼对应 cate1，如「热门游戏」「娱乐天地」）。
+class CategoryGroup {
+  const CategoryGroup({
+    required this.id,
+    required this.name,
+    required this.categories,
+  });
+
+  final String id;
+  final String name;
+  final List<Category> categories;
+}
+
+/// 主播卡片数据（列表行/网格卡片共用）。
+class Streamer {
+  const Streamer({
+    required this.platform,
+    required this.id,
+    required this.nickname,
+    this.title = '',
+    this.cover = '',
+    this.avatar = '',
+    this.viewers = 0,
+    this.categoryName = '',
+    this.isLive = false,
+  });
+
+  final LivePlatform platform;
+
+  /// 房间号（真实房间号，不是短号）。
+  final String id;
+  final String nickname;
+  final String title;
+  final String cover;
+  final String avatar;
+
+  /// 人气/观看数。
+  final int viewers;
+  final String categoryName;
+  final bool isLive;
+}
+
+/// 一页主播卡片 + 分页信息（列表无限滚动需要 hasMore）。
+class StreamerPage {
+  const StreamerPage({
+    required this.items,
+    this.page = 1,
+    this.hasMore = false,
+    this.totalPages = 0,
+  });
+
+  final List<Streamer> items;
+  final int page;
+  final bool hasMore;
+
+  /// 0 表示上游没给总页数（此时 hasMore 由「本页是否满页」推断）。
+  final int totalPages;
+
+  static const StreamerPage empty = StreamerPage(items: []);
+}
+
+/// 搜索结果条目。
+class SearchHit {
+  const SearchHit({
+    required this.platform,
+    required this.id,
+    required this.nickname,
+    this.title = '',
+    this.avatar = '',
+    this.isLive = false,
+  });
+
+  final LivePlatform platform;
+  final String id;
+  final String nickname;
+  final String title;
+  final String avatar;
+  final bool isLive;
+}

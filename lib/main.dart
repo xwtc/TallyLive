@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:tallylive/core/settings.dart';
 import 'package:tallylive/ui/about_page.dart';
-import 'package:tallylive/ui/home_page.dart';
+import 'package:tallylive/ui/live_page.dart';
 import 'package:tallylive/ui/settings_page.dart';
 import 'package:tallylive/ui/theme.dart';
 
@@ -43,7 +43,7 @@ class _RootScaffoldState extends State<RootScaffold> {
   int _index = 0;
 
   static const List<Widget> _pages = [
-    HomePage(),
+    LivePage(),
     SettingsPage(),
     AboutPage(),
   ];

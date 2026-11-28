@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:tallylive/core/danmaku_stats.dart';
+import 'package:tallylive/ui/debug_page.dart';
 import 'package:tallylive/ui/theme.dart';
 
 /// 「关于」Tab。
@@ -80,6 +82,41 @@ class AboutPage extends StatelessWidget {
               _KV('播放内核', 'libmpv，视频与弹幕同一合成器'),
             ],
           ),
+          const SizedBox(height: 24),
+          // 调试入口：仅在非 release 构建出现（kReleaseMode 会整段剔除）
+          if (kDiagnosticsEnabled)
+            _Card(
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.build_outlined,
+                      size: 18, color: TallyColors.textSecondary),
+                  title: const Text(
+                    '调试页（选平台 + 输房间号）',
+                    style: TextStyle(
+                      color: TallyColors.textPrimary,
+                      fontSize: 13,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    '排障用；正式版不显示',
+                    style: TextStyle(
+                      color: TallyColors.textTertiary,
+                      fontSize: 11,
+                    ),
+                  ),
+                  trailing: const Icon(Icons.chevron_right,
+                      size: 18, color: TallyColors.textTertiary),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const DebugPage(),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
           const SizedBox(height: 24),
           const Center(
             child: Text(

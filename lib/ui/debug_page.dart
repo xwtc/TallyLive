@@ -8,17 +8,17 @@ import 'package:tallylive/platforms/platform_client.dart';
 import 'package:tallylive/ui/player_page.dart';
 import 'package:tallylive/ui/theme.dart';
 
-/// 「直播」Tab：选平台 + 输房间号 + 最近打开。
+/// 调试页：选平台 + 输房间号 + 最近打开。
 ///
-/// 这是临时的验证入口，后续会换成「关注中在播 + 平台精选」的正式首页。
-class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+/// **仅用于排障/验证**：正式首页已换成 `LivePage`。\n/// 该页只在 `kDiagnosticsEnabled` 为 true 时可达（release 构建不显示入口）。
+class DebugPage extends StatefulWidget {
+  const DebugPage({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<DebugPage> createState() => _DebugPageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _DebugPageState extends State<DebugPage> {
   final TextEditingController _roomController = TextEditingController();
   final AppSettings _settings = AppSettings.instance;
 
