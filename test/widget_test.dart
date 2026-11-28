@@ -28,12 +28,17 @@ void main() {
     expect(theme.colorScheme.primary, isNot(TallyColors.tallyRed));
   });
 
-  test('字号阶梯与间距阶取自统一 token', () {
-    expect(TallyType.pageTitle.fontSize, 20);
+  test('字号阶梯与间距阶取自统一 token（对齐 DTV 的 11/12/13/15/18）', () {
+    expect(TallyType.pageTitle.fontSize, 18);
     expect(TallyType.nickname.fontSize, 15);
-    expect(TallyType.meta.fontSize, 11);
+    expect(TallyType.meta.fontSize, 12);
+    expect(TallyType.tiny.fontSize, 11);
     expect(TallySpace.sm, 8);
     expect(TallySpace.xl, 24);
-    expect(TallyRadius.card, 6);
+    // DTV 的卡片圆角是 12、胶囊 999
+    expect(TallyRadius.card, 12);
+    expect(TallyRadius.pill, 999);
+    expect(TallySize.navbar, 64);
+    expect(TallySize.sidebar, 224);
   });
 }
