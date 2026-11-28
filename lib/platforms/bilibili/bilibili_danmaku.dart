@@ -55,6 +55,9 @@ class BilibiliDanmakuClient implements DanmakuClient {
   /// 本次连接是否已通过 auth（用于区分被拒绝与连上后被断）。
   bool _authOk = false;
 
+  /// 本次 socket 收到的帧数（诊断用：0 说明服务端一帧都没回）。
+  int _framesThisSocket = 0;
+
   /// 取 token 被风控后置位：重连间隔拉长到 60s，别继续打上游。
   bool _tokenBlocked = false;
 
@@ -239,23 +242,40 @@ class BilibiliDanmakuClient implements DanmakuClient {
     String realRoomId,
     String token,
   ) async {
-    final socket = await WebSocket.connect(
-      'wss://$host/sub',
-      headers: {
-        'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-                '(KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
-        'Origin': 'https://live.bilibili.com',
-        'Referer': 'https://live.bilibili.com/',
-      },
-    ).timeout(const Duration(seconds: 12));
+    // 同一域名试两个入口：443（DTV / Python 都验证可连）与 2245
+    // （host_list 里的 wss_port）。不同 TLS 栈可能被 CDN 区别对待。
+    WebSocket? socket;
+    Object? lastError;
+    for (final url in ['wss://$host/sub', 'wss://$host:2245/sub']) {
+      try {
+        socket = await WebSocket.connect(
+          url,
+          headers: {
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                    '(KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+            'Origin': 'https://live.bilibili.com',
+            'Referer': 'https://live.bilibili.com/',
+          },
+        ).timeout(const Duration(seconds: 8));
+        break;
+      } catch (error) {
+        lastError = error;
+        socket = null;
+      }
+    }
+    if (socket == null) {
+      throw _DanmakuConnectError('$host 无法建立 WebSocket：$lastError');
+    }
 
     if (_stopped) {
       await socket.close();
       return;
     }
-    _socket = socket;
+    final ws = socket;
+    _socket = ws;
     _authOk = false;
+    _framesThisSocket = 0;
 
     // 发 auth（参数与 DTV 的 Go 实现保持一致：不带 buvid）
     // 没有 token 时不带 key 字段（blivedm 实测可行）
@@ -267,19 +287,9 @@ class BilibiliDanmakuClient implements DanmakuClient {
       'type': 2,
       if (token.isNotEmpty) 'key': token,
     });
-    socket.add(encodePacket(_opAuth, utf8.encode(auth)));
 
-    // 心跳
-    _heartbeat?.cancel();
-    _heartbeat = Timer.periodic(_heartbeatInterval, (_) {
-      try {
-        socket.add(encodePacket(_opHeartbeat, utf8.encode('{}')));
-      } catch (_) {
-        // 写失败说明连接已断，交给 listen 的错误处理
-      }
-    });
-
-    _subscription = socket.listen(
+    // 先挂监听再发 auth：避免个别平台上「先 add 后 listen」丢掉首包
+    _subscription = ws.listen(
       _handleFrame,
       onError: (Object error) {
         if (!_stopped) _scheduleReconnect(error);
@@ -288,7 +298,13 @@ class BilibiliDanmakuClient implements DanmakuClient {
         if (_stopped) return;
         // 认证还没通过就被关 → 服务端拒绝了这次 auth（最常见是 token 失效）
         if (!_authOk) {
-          _emitError('B站弹幕连接被服务端关闭（认证未通过）');
+          final closeCode = ws.closeCode;
+          final closeReason = ws.closeReason;
+          _emitError(
+            'B站弹幕认证未通过：连接被关闭'
+            '（code=$closeCode${closeReason == null || closeReason.isEmpty ? '' : ' $closeReason'}，'
+            '本次收到 $_framesThisSocket 帧）',
+          );
           // token 可能已失效：丢掉缓存，下次重新取
           _client.invalidateDanmuCache(realRoomId);
         }
@@ -296,6 +312,20 @@ class BilibiliDanmakuClient implements DanmakuClient {
       },
       cancelOnError: true,
     );
+
+    ws.add(encodePacket(_opAuth, utf8.encode(auth)));
+
+    // 心跳
+    _heartbeat?.cancel();
+    _heartbeat = Timer.periodic(_heartbeatInterval, (_) {
+      try {
+        ws.add(encodePacket(_opHeartbeat, utf8.encode('{}')));
+      } catch (_) {
+        // 写失败说明连接已断，交给 listen 的错误处理
+      }
+    });
+
+
 
     _resetWatchdog();
     stage.value = '已连接 $host，等待认证（room=$realRoomId protover=$_protover token=${token.length}B）…';
@@ -358,6 +388,7 @@ class BilibiliDanmakuClient implements DanmakuClient {
   /* ------------------------------ 解包 ------------------------------ */
 
   void _handleFrame(dynamic data) {
+    _framesThisSocket++;
     // 收到任何帧都说明连接活着，重置看门狗。
     _resetWatchdog();
 

@@ -72,7 +72,8 @@ class BilibiliClient extends PlatformClient {
   /// 弹幕服务器信息缓存（房间号 → token/hosts）。
   /// getDanmuInfo 最容易被 -352 风控，重连时复用能少打很多次。
   final Map<String, _DanmuCacheEntry> _danmuCache = {};
-  static const Duration _danmuCacheTTL = Duration(minutes: 10);
+  /// token 有时效，缓存太久容易拿失效 token 反复认证失败。
+  static const Duration _danmuCacheTTL = Duration(seconds: 90);
   DateTime _wWebIdAt = DateTime.fromMillisecondsSinceEpoch(0);
   static const Duration _wWebIdTTL = Duration(minutes: 30);
 
