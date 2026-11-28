@@ -243,11 +243,16 @@ class _PlayerPageState extends State<PlayerPage> {
       await client.start(widget.room.roomId, realRoomId: widget.room.roomId);
       // B 站客户端会报阶段，其它平台没有就保持 null
       if (client is BilibiliDanmakuClient) {
-        _danmakuStageSub = client.stage.addListener(() {
+        final stage = client.stage;
+        // addListener 不返回订阅对象，这里自己存一个移除闭包
+        void listener() {
           if (!mounted) return;
-          setState(() => _danmakuStage = client.stage.value);
-        });
-        _danmakuStage = client.stage.value;
+          setState(() => _danmakuStage = stage.value);
+        }
+
+        stage.addListener(listener);
+        _danmakuStageSub = () => stage.removeListener(listener);
+        _danmakuStage = stage.value;
       }
     } catch (error) {
       // 弹幕失败不影响看画面，但要把原因留下来，否则只显示"暂无弹幕"
