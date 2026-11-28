@@ -49,6 +49,15 @@ class _InlineSearchState extends State<InlineSearch> {
   String? _error;
   String _query = '';
 
+  /// 已加载到第几页（从 1 开始）。
+  int _page = 1;
+
+  /// 还有没有下一页（结果数达到页大小时认为可能有）。
+  bool _hasMore = false;
+
+  /// 正在加载更多。
+  bool _loadingMore = false;
+
   static const double _widthIdle = 190;
   static const double _widthExpanded = 292;
 
@@ -123,17 +132,22 @@ class _InlineSearchState extends State<InlineSearch> {
       _loading = true;
       _error = null;
       _query = keyword;
+      _page = 1;
+      _hasMore = false;
     });
     _activeIndex.value = -1;
     try {
       final hits = await sharedRepository.search(
         platform: platform,
         keyword: keyword,
+        page: 1,
       );
       if (!mounted || _query != keyword) return;
       setState(() {
         _hits = hits;
         _loading = false;
+        // 结果数达到一页通常说明还有下一页（各平台页大小都在 20 上下）
+        _hasMore = hits.length >= 20;
       });
       _activeIndex.value = hits.isEmpty ? -1 : 0;
       _syncPanel();
@@ -144,6 +158,43 @@ class _InlineSearchState extends State<InlineSearch> {
         _loading = false;
       });
       _activeIndex.value = -1;
+      _syncPanel();
+    }
+  }
+
+  /// 加载下一页并追加（翻页只追加，不重置已有结果）。
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore || _query.isEmpty) return;
+    final platform =
+        FeedUi.instance.platform ?? sharedRepository.supportedPlatforms.first;
+    setState(() => _loadingMore = true);
+    final nextPage = _page + 1;
+    try {
+      final hits = await sharedRepository.search(
+        platform: platform,
+        keyword: _query,
+        page: nextPage,
+      );
+      if (!mounted) return;
+      setState(() {
+        _page = nextPage;
+        _loadingMore = false;
+        // 去重后追加（各平台跨页可能重复同一直播间）
+        final existing = {for (final hit in _hits) '${hit.platform.name}:${hit.id}'};
+        _hits = [
+          ..._hits,
+          ...hits.where((hit) => existing.add('${hit.platform.name}:${hit.id}')),
+        ];
+        _hasMore = hits.length >= 20;
+      });
+      _syncPanel();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadingMore = false;
+        _hasMore = false;
+        _error = _friendly(error);
+      });
       _syncPanel();
     }
   }
@@ -361,13 +412,22 @@ class _InlineSearchState extends State<InlineSearch> {
     return ListView.builder(
       shrinkWrap: true,
       padding: const EdgeInsets.only(bottom: 4),
-      itemCount: _hits.length,
-      itemBuilder: (context, index) => _HitRow(
-        hit: _hits[index],
-        index: index,
-        activeIndex: _activeIndex,
-        onTap: () => _open(_hits[index]),
-      ),
+      itemCount: _hits.length + (_hasMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        // 最后一项是「加载更多」
+        if (index >= _hits.length) {
+          return _LoadMoreRow(
+            loading: _loadingMore,
+            onTap: _loadMore,
+          );
+        }
+        return _HitRow(
+          hit: _hits[index],
+          index: index,
+          activeIndex: _activeIndex,
+          onTap: () => _open(_hits[index]),
+        );
+      },
     );
   }
 }
@@ -518,6 +578,66 @@ class _HitRowState extends State<_HitRow> {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+/// 「加载更多」页脚。
+class _LoadMoreRow extends StatefulWidget {
+  const _LoadMoreRow({required this.loading, required this.onTap});
+
+  final bool loading;
+  final VoidCallback onTap;
+
+  @override
+  State<_LoadMoreRow> createState() => _LoadMoreRowState();
+}
+
+class _LoadMoreRowState extends State<_LoadMoreRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: widget.loading
+          ? SystemMouseCursors.basic
+          : SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.loading ? null : widget.onTap,
+        child: Container(
+          height: 36,
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: _hovered && !widget.loading
+                ? TallyColors.inset
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: widget.loading
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: TallyColors.signalBlue,
+                  ),
+                )
+              : Text(
+                  '加载更多',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _hovered
+                        ? TallyColors.textSecondary
+                        : TallyColors.textTertiary,
+                    decoration: TextDecoration.none,
+                  ),
+                ),
         ),
       ),
     );

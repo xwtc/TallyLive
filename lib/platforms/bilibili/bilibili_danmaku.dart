@@ -32,6 +32,8 @@ class BilibiliDanmakuClient implements DanmakuClient {
   final StreamController<DanmakuMessage> _messages =
       StreamController<DanmakuMessage>.broadcast();
   final StreamController<bool> _connected = StreamController<bool>.broadcast();
+  final StreamController<String> _errors =
+      StreamController<String>.broadcast();
 
   WebSocket? _socket;
   StreamSubscription<dynamic>? _subscription;
@@ -76,15 +78,18 @@ class BilibiliDanmakuClient implements DanmakuClient {
   /// `getDanmuInfo` 可能被风控（实测返回 -352，本机 curl 同样如此），
   /// 此时直接连这个公开域名、auth 里**不带 key** 也能收到弹幕
   /// —— 这是 blivedm 验证过的降级路径。
-  static const List<String> _fallbackHosts = [
-    'broadcastlv.chat.bilibili.com',
-  ];
+  // 公开弹幕服务器（broadcastlv.chat.bilibili.com）实测已全部失效，
+  // 不再作为降级目标；拿不到 token 时直接报错。
+
 
   @override
   Stream<DanmakuMessage> get messages => _messages.stream;
 
   @override
   Stream<bool> get connected => _connected.stream;
+
+  @override
+  Stream<String> get errors => _errors.stream;
 
   @override
   Future<void> start(String roomId, {String? realRoomId}) async {
@@ -125,6 +130,7 @@ class BilibiliDanmakuClient implements DanmakuClient {
   Future<void> dispose() async {
     await stop();
     await _messages.close();
+    await _errors.close();
     await _connected.close();
   }
 
@@ -141,34 +147,33 @@ class BilibiliDanmakuClient implements DanmakuClient {
         final room = await _client.fetchRoomInfo(_roomId);
         realRoomId = room.roomId;
       }
-      // 拿不到 token 不是死路：getDanmuInfo 被风控时退回公开服务器、不带 key。
-      var token = '';
-      var hosts = _fallbackHosts;
-      String? fetchError;
+      if (_stopped) return;
+
+      // 2. token + 服务器列表（客户端内部已有 10 分钟缓存与退避重试）
+      //
+      // ⚠️ 这里**不再降级到公开服务器**：
+      // `broadcastlv.chat.bilibili.com` 实测已不可用
+      // （wss:443 无回包、tcp:2243 不是 TLS、ws:2244 超时），
+      // 降级过去只会让圆点永远黄着显示「正在连接」。宁可直接报错。
+      final ({String token, List<String> hosts}) info;
       try {
-        final serverInfo = await _client.fetchDanmuInfo(realRoomId);
-        if (serverInfo.token.isNotEmpty && serverInfo.hosts.isNotEmpty) {
-          token = serverInfo.token;
-          hosts = serverInfo.hosts;
-        } else {
-          fetchError = 'getDanmuInfo 未返回 token';
-        }
+        info = await _client.fetchDanmuInfo(realRoomId);
       } catch (error) {
-        // -352 风控等：降级到默认服务器
-        fetchError = error.toString();
+        final message = _describeTokenFailure(error);
+        _tokenBlocked = true;
+        _emitError(message);
+        throw _DanmakuConnectError(message);
       }
       if (_stopped) return;
-      // 降级到公开服务器时把原因记下来（debug 构建可见，便于排障）
-      if (token.isEmpty && fetchError != null && kDiagnosticsEnabled) {
-        debugPrint('[Bilibili] 弹幕降级到公开服务器：$fetchError');
-      }
+      _tokenBlocked = false;
+      _emitError('');
 
-      // 2. 依次尝试各域名
+      // 3. 依次尝试各域名
       Object? lastError;
-      for (final host in hosts) {
+      for (final host in info.hosts) {
         if (_stopped) return;
         try {
-          await _openSocket(host, realRoomId, token);
+          await _openSocket(host, realRoomId, info.token);
           // 连上就先算成功，剩余错误交给 readLoop 之后的退避
           _retry = 0;
           return;
@@ -183,6 +188,25 @@ class BilibiliDanmakuClient implements DanmakuClient {
       if (_stopped) return;
       _scheduleReconnect(error);
     }
+  }
+
+  /// 把取 token 的失败翻成用户能看懂的话。
+  String _describeTokenFailure(Object error) {
+    if (error is BilibiliApiException) {
+      if (error.code == -352) {
+        return 'B站弹幕接口被风控（-352）。\n'
+            '登录 B站账号后重试成功率更高，或稍后再试。';
+      }
+      if (error.code == -412) {
+        return 'B站弹幕接口被限流（-412），请稍后再试。';
+      }
+      return 'B站弹幕服务器信息获取失败（code=${error.code}）。';
+    }
+    return 'B站弹幕服务器信息获取失败：$error';
+  }
+
+  void _emitError(String message) {
+    if (!_errors.isClosed) _errors.add(message);
   }
 
   Future<void> _openSocket(
@@ -278,8 +302,11 @@ class BilibiliDanmakuClient implements DanmakuClient {
     final floor = _authFailures >= 3 ? 3 : 0;
     final shift = (_retry - 1).clamp(0, 5).toInt() + floor;
     final seconds = 1 << shift.clamp(0, 6).toInt();
-    var delay = Duration(seconds: seconds);
-    if (delay > _maxBackoff) delay = _maxBackoff;
+    // 被风控时不要继续按 1/2/4s 打上游，直接等 60s（token 已缓存则不会重复请求）
+    var delay = _tokenBlocked
+        ? const Duration(seconds: 60)
+        : Duration(seconds: seconds);
+    if (delay > _maxBackoff && !_tokenBlocked) delay = _maxBackoff;
 
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(delay, () {

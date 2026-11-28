@@ -29,6 +29,8 @@ class HuyaDanmakuClient implements DanmakuClient {
   final StreamController<DanmakuMessage> _messages =
       StreamController<DanmakuMessage>.broadcast();
   final StreamController<bool> _connected = StreamController<bool>.broadcast();
+  final StreamController<String> _errors =
+      StreamController<String>.broadcast();
 
   WebSocket? _socket;
   StreamSubscription<dynamic>? _subscription;
@@ -62,6 +64,9 @@ class HuyaDanmakuClient implements DanmakuClient {
 
   @override
   Stream<bool> get connected => _connected.stream;
+
+  @override
+  Stream<String> get errors => _errors.stream;
 
   @override
   Future<void> start(String roomId, {String? realRoomId}) async {
@@ -98,6 +103,7 @@ class HuyaDanmakuClient implements DanmakuClient {
   Future<void> dispose() async {
     await stop();
     await _messages.close();
+    await _errors.close();
     await _connected.close();
   }
 
@@ -141,6 +147,7 @@ class HuyaDanmakuClient implements DanmakuClient {
       );
 
       _resetWatchdog();
+      if (!_errors.isClosed) _errors.add('');
       if (!_connected.isClosed) _connected.add(true);
       _retry = 0;
     } catch (error) {
@@ -176,6 +183,8 @@ class HuyaDanmakuClient implements DanmakuClient {
   }
 
   void _scheduleReconnect(Object error) {
+    // 失败原因上报给界面，否则用户只看到「正在连接…」
+    if (!_errors.isClosed) _errors.add(error.toString());
     if (_stopped) return;
     if (!_connected.isClosed) _connected.add(false);
     final socket = _socket;

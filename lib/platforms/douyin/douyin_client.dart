@@ -210,7 +210,7 @@ class DouyinClient extends PlatformClient {
   /// - 完整链接 `https://live.douyin.com/123456789` → 从链接里取数字
   /// - 其它关键词 → 抛异常，界面提示"抖音只支持房间号"
   @override
-  Future<List<SearchHit>> search(String keyword) async {
+  Future<List<SearchHit>> search(String keyword, {int page = 1}) async {
     final raw = keyword.trim();
     if (raw.isEmpty) return const [];
 

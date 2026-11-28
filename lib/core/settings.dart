@@ -50,6 +50,10 @@ class AppSettings extends ChangeNotifier {
   static const String _kDanmakuBlocked = 'danmaku_blocked';
   static const String _kDanmakuColorful = 'danmaku_colorful';
   static const String _kRecentRooms = 'recent_rooms';
+  static const String _kDanmakuPanelWidth = 'danmaku_panel_width';
+  static const String _kSidebarCollapsed = 'sidebar_collapsed';
+  static const String _kQualityPrefs = 'quality_prefs';
+  static const String _kLinePrefs = 'line_prefs';
   static const int _maxRecentRooms = 20;
 
   bool _danmakuEnabled = true;
@@ -57,6 +61,16 @@ class AppSettings extends ChangeNotifier {
   double _danmakuOpacity = 1;
   double _danmakuDuration = 10;
   double _danmakuArea = 0.5;
+
+  /// 播放页右侧弹幕面板宽度（DTV 同样的默认 196、范围 168~320）。
+  double _danmakuPanelWidth = 196;
+
+  /// 侧栏是否收起。
+  bool _sidebarCollapsed = false;
+
+  /// 平台 → 上次选择的质量档 id / 线路 id。
+  final Map<String, String> _qualityPrefs = {};
+  final Map<String, String> _linePrefs = {};
 
   /// 屏蔽词（逗号/换行分隔）。命中的弹幕不渲染。
   String _danmakuBlocked = '';
@@ -84,6 +98,45 @@ class AppSettings extends ChangeNotifier {
   double get danmakuArea => _danmakuArea;
   List<RecentRoom> get recentRooms => List.unmodifiable(_recentRooms);
 
+  /// 弹幕面板宽度。
+  double get danmakuPanelWidth => _danmakuPanelWidth;
+  set danmakuPanelWidth(double value) {
+    final clamped = value.clamp(168.0, 320.0);
+    if (clamped == _danmakuPanelWidth) return;
+    _danmakuPanelWidth = clamped;
+    notifyListeners();
+    _save();
+  }
+
+  /// 侧栏收起状态。
+  bool get sidebarCollapsed => _sidebarCollapsed;
+  set sidebarCollapsed(bool value) {
+    if (value == _sidebarCollapsed) return;
+    _sidebarCollapsed = value;
+    notifyListeners();
+    _save();
+  }
+
+  /// 上次用的清晰度档 id（找不到就由调用方回退首档）。
+  String? qualityOf(LivePlatform platform) => _qualityPrefs[platform.name];
+
+  Future<void> setQuality(LivePlatform platform, String variantId) async {
+    if (variantId.isEmpty) return;
+    _qualityPrefs[platform.name] = variantId;
+    notifyListeners();
+    await _save();
+  }
+
+  /// 上次用的线路 id。
+  String? lineOf(LivePlatform platform) => _linePrefs[platform.name];
+
+  Future<void> setLine(LivePlatform platform, String lineId) async {
+    if (lineId.isEmpty) return;
+    _linePrefs[platform.name] = lineId;
+    notifyListeners();
+    await _save();
+  }
+
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     _danmakuEnabled = prefs.getBool(_kDanmakuEnabled) ?? true;
@@ -93,6 +146,14 @@ class AppSettings extends ChangeNotifier {
     _danmakuArea = prefs.getDouble(_kDanmakuArea) ?? 0.5;
     _danmakuBlocked = prefs.getString(_kDanmakuBlocked) ?? '';
     _danmakuColorful = prefs.getBool(_kDanmakuColorful) ?? true;
+    _danmakuPanelWidth = (prefs.getDouble(_kDanmakuPanelWidth) ?? 196).clamp(168.0, 320.0);
+    _sidebarCollapsed = prefs.getBool(_kSidebarCollapsed) ?? false;
+    _qualityPrefs
+      ..clear()
+      ..addAll(_decodePrefMap(prefs.getStringList(_kQualityPrefs)));
+    _linePrefs
+      ..clear()
+      ..addAll(_decodePrefMap(prefs.getStringList(_kLinePrefs)));
 
     final raw = prefs.getStringList(_kRecentRooms) ?? const [];
     final rooms = <RecentRoom>[];
@@ -121,6 +182,10 @@ class AppSettings extends ChangeNotifier {
     await prefs.setDouble(_kDanmakuArea, _danmakuArea);
     await prefs.setString(_kDanmakuBlocked, _danmakuBlocked);
     await prefs.setBool(_kDanmakuColorful, _danmakuColorful);
+    await prefs.setDouble(_kDanmakuPanelWidth, _danmakuPanelWidth);
+    await prefs.setBool(_kSidebarCollapsed, _sidebarCollapsed);
+    await prefs.setStringList(_kQualityPrefs, _encodePrefMap(_qualityPrefs));
+    await prefs.setStringList(_kLinePrefs, _encodePrefMap(_linePrefs));
     await prefs.setStringList(
       _kRecentRooms,
       _recentRooms.map((r) => '${r.platform.name}|${r.roomId}|${r.at}').toList(),
@@ -196,5 +261,18 @@ class AppSettings extends ChangeNotifier {
     _recentRooms = const [];
     notifyListeners();
     await _save();
+  }
+  /// 偏好表存成 "platform|id" 列表，比 JSON 少一层依赖且好排错。
+  static List<String> _encodePrefMap(Map<String, String> map) =>
+      [for (final entry in map.entries) '${entry.key}|${entry.value}'];
+
+  static Map<String, String> _decodePrefMap(List<String>? raw) {
+    final out = <String, String>{};
+    for (final item in raw ?? const <String>[]) {
+      final parts = item.split('|');
+      if (parts.length < 2 || parts[0].isEmpty || parts[1].isEmpty) continue;
+      out[parts[0]] = parts[1];
+    }
+    return out;
   }
 }

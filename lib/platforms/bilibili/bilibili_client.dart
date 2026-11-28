@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
+import 'package:tallylive/core/account.dart';
 import 'package:tallylive/core/http.dart';
 import 'package:tallylive/core/models.dart';
 import 'package:tallylive/platforms/bilibili/bilibili_wbi.dart';
@@ -63,6 +64,11 @@ class BilibiliClient extends PlatformClient {
 
   /// buvid3（搜索接口的 Cookie 用）。
   String _buvid = '';
+
+  /// 弹幕服务器信息缓存（房间号 → token/hosts）。
+  /// getDanmuInfo 最容易被 -352 风控，重连时复用能少打很多次。
+  final Map<String, _DanmuCacheEntry> _danmuCache = {};
+  static const Duration _danmuCacheTTL = Duration(minutes: 10);
   DateTime _wWebIdAt = DateTime.fromMillisecondsSinceEpoch(0);
   static const Duration _wWebIdTTL = Duration(minutes: 30);
 
@@ -73,13 +79,20 @@ class BilibiliClient extends PlatformClient {
   late final WbiSigner _wbi = WbiSigner(fetchKeys: _fetchWbiKeys);
 
   /// B 站匿名请求也要求带 buvid3，否则部分接口 412。
-  Map<String, String> get _headers => {
-        'User-Agent': _desktopUA,
-        'Referer': _referer,
-        'Origin': _origin,
-        'Accept': 'application/json, text/plain, */*',
-        'Cookie': 'buvid3=i;',
-      };
+  Map<String, String> get _headers {
+    // 登录后带真实 Cookie：搜索 / 列表 / getDanmuInfo 的风控阈值都明显更高。
+    final login = AccountStore.instance.cookieOf(LivePlatform.bilibili);
+    final cookie = login.isNotEmpty
+        ? login
+        : (_buvid.isNotEmpty ? 'buvid3=$_buvid;' : 'buvid3=i;');
+    return {
+      'User-Agent': _desktopUA,
+      'Referer': _referer,
+      'Origin': _origin,
+      'Accept': 'application/json, text/plain, */*',
+      'Cookie': cookie,
+    };
+  }
 
   /// 拉取房间基本信息。
   ///
@@ -91,7 +104,8 @@ class BilibiliClient extends PlatformClient {
   /// 参数与 DTV 一致（那些空值参数不是摆设，少了会掉到「无结果」分支）；
   /// 结果里的 title/uname 带 `<em class="keyword">` 高亮标签，要清掉。
   @override
-  Future<List<SearchHit>> search(String keyword) async {
+  Future<List<SearchHit>> search(String keyword, {int page = 1}) async {
+      final safePage = page < 1 ? 1 : page;
     final text = keyword.trim();
     if (text.isEmpty) return const [];
 
@@ -107,7 +121,7 @@ class BilibiliClient extends PlatformClient {
       ['_extra', ''],
       ['highlight', '0'],
       ['single_column', '0'],
-      ['page', '1'],
+      ['page', '$safePage'],
     ];
     final query =
         params.map((kv) => '${kv[0]}=${Uri.encodeQueryComponent(kv[1])}').join('&');
@@ -370,33 +384,81 @@ class BilibiliClient extends PlatformClient {
   ///
   /// 与 Go 版 danmuInfo 一致：参数为 id / type=0 / web_location=444.8，
   /// 域名列表里同一个 host 可能重复出现（不同端口），去重保序。
+  ///
+  /// 这个接口是 B 站风控最严的一个（实测间歇性 -352）：
+  /// - 用**登录 Cookie** 请求时阈值明显更高，所以优先带登录态；
+  /// - 结果按房间缓存 10 分钟，避免重连风暴把配额打光；
+  /// - -352 / -412 视为可重试，退避后重新签名再请求。
   Future<({String token, List<String> hosts})> fetchDanmuInfo(
     String roomId,
   ) async {
-    final query = await _wbi.sign({
-      'id': roomId,
-      'type': '0',
-      'web_location': '444.8',
-    });
-
-    final json = await _http.getJson('$_urlDanmuInfo?$query', headers: _headers);
-    final map = _asMap(json);
-    final code = _asInt(map['code']);
-    if (code != 0) {
-      throw BilibiliApiException('getDanmuInfo', code, _asString(map['msg']));
+    final cached = _danmuCache[roomId];
+    if (cached != null &&
+        DateTime.now().difference(cached.fetchedAt) < _danmuCacheTTL) {
+      return (token: cached.token, hosts: cached.hosts);
     }
 
-    final data = _asMap(map['data']);
-    final token = _asString(data['token']);
+    Object? lastError;
+    // 3 次机会：-352 是限流，退避后重签往往就过了
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        await Future<void>.delayed(
+          Duration(milliseconds: 400 * attempt * attempt),
+        );
+        // wts 每次都会变，但 key 若已轮换也需要重取
+        _wbi.invalidate();
+      }
+      final query = await _wbi.sign({
+        'id': roomId,
+        'type': '0',
+        'web_location': '444.8',
+      });
 
-    final hosts = <String>[];
-    final seen = <String>{};
-    for (final item in _asList(data['host_list'])) {
-      final host = _asString(_asMap(item)['host']).trim();
-      if (host.isEmpty || !seen.add(host)) continue;
-      hosts.add(host);
+      final json =
+          await _http.getJson('$_urlDanmuInfo?$query', headers: _headers);
+      final map = _asMap(json);
+      final code = _asInt(map['code']);
+      if (code != 0) {
+        lastError = BilibiliApiException(
+          'getDanmuInfo',
+          code,
+          _asString(map['msg']),
+        );
+        // 只有风控/限流类错误值得重试
+        if (code != -352 && code != -412 && code != -799) break;
+        continue;
+      }
+
+      final data = _asMap(map['data']);
+      final token = _asString(data['token']);
+
+      final hosts = <String>[];
+      final seen = <String>{};
+      for (final item in _asList(data['host_list'])) {
+        final host = _asString(_asMap(item)['host']).trim();
+        if (host.isEmpty || !seen.add(host)) continue;
+        hosts.add(host);
+      }
+      if (token.isEmpty || hosts.isEmpty) {
+        lastError = const BilibiliApiException(
+          'getDanmuInfo', 0, '未返回 token 或服务器列表');
+        continue;
+      }
+
+      _danmuCache[roomId] =
+          _DanmuCacheEntry(token: token, hosts: hosts, fetchedAt: DateTime.now());
+      // 缓存别无限长，房间看多了会占内存
+      if (_danmuCache.length > 24) {
+        final oldest = _danmuCache.entries.reduce(
+          (a, b) => a.value.fetchedAt.isBefore(b.value.fetchedAt) ? a : b,
+        );
+        _danmuCache.remove(oldest.key);
+      }
+      return (token: token, hosts: hosts);
     }
-    return (token: token, hosts: hosts);
+
+    throw lastError ??
+        const BilibiliApiException('getDanmuInfo', 0, '未知错误');
   }
 
   /// 从 nav 接口取 WBI 的 img_key / sub_key。
@@ -776,4 +838,17 @@ int _asInt(Object? value) {
   if (value is double) return value.toInt();
   if (value is String) return int.tryParse(value) ?? 0;
   return 0;
+}
+
+/// getDanmuInfo 的缓存条目（按房间）。
+class _DanmuCacheEntry {
+  const _DanmuCacheEntry({
+    required this.token,
+    required this.hosts,
+    required this.fetchedAt,
+  });
+
+  final String token;
+  final List<String> hosts;
+  final DateTime fetchedAt;
 }

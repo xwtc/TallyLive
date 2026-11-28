@@ -261,8 +261,9 @@ class HuyaClient extends PlatformClient {
   ///
   /// 字段：room_id / game_nick / live_intro / game_avatarUrl180 / gameLiveOn
   @override
-  Future<List<SearchHit>> search(String keyword) async {
+  Future<List<SearchHit>> search(String keyword, {int page = 1}) async {
     final text = keyword.trim();
+      final start = ((page < 1 ? 1 : page) - 1) * 20;
     if (text.isEmpty) return const [];
 
     final query = <String, String>{
@@ -274,7 +275,7 @@ class HuyaClient extends PlatformClient {
       'typ': '-5',
       'livestate': '0',
       'rows': '20',
-      'start': '0',
+      'start': '$start',
     };
     final qs = query.entries
         .map((e) =>

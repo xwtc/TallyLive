@@ -70,6 +70,7 @@ class _PlayerPageState extends State<PlayerPage> {
   /// 弹幕连接失败的原因（非空时在调试面板与弹幕列表里显示）。
   String? _danmakuError;
   StreamSubscription<bool>? _danmakuStatusSub;
+  StreamSubscription<String>? _danmakuErrorSub;
 
   /// 是否展开弹幕调试面板（右键标题栏切换，仅诊断构建）。
   bool _showStats = false;
@@ -90,14 +91,27 @@ class _PlayerPageState extends State<PlayerPage> {
   bool _danmuPanelOpen = false;
 
   /// 弹幕面板宽度（可拖，范围对齐 DTV 的 168~320）。
-  double _danmuPanelWidth = 196;
+  double _danmuPanelWidth = AppSettings.instance.danmakuPanelWidth;
 
   @override
   void initState() {
     super.initState();
-    _variant = widget.variants.first;
-    // 默认用第一条可用线路（StreamInfoResult.usableLines 已过滤掉无地址的）。
-    _lineId = widget.lines.isNotEmpty ? widget.lines.first.id : null;
+    // 优先用上次为该平台选的档位 / 线路（DTV 也是按平台记偏好），
+    // 找不到（比如这次没有该档位）就回退第一档 / 第一条可用线路。
+    final savedQuality = AppSettings.instance.qualityOf(widget.room.platform);
+    _variant = widget.variants.firstWhere(
+      (variant) => variant.id == savedQuality,
+      orElse: () => widget.variants.first,
+    );
+    final savedLine = AppSettings.instance.lineOf(widget.room.platform);
+    _lineId = widget.lines.isEmpty
+        ? null
+        : widget.lines
+            .firstWhere(
+              (line) => line.id == savedLine,
+              orElse: () => widget.lines.first,
+            )
+            .id;
 
     _player = Player();
     _controller = VideoController(_player);
@@ -197,6 +211,11 @@ class _PlayerPageState extends State<PlayerPage> {
       if (!mounted) return;
       setState(() => _danmakuOnline = online);
     });
+    // 失败原因（风控 / 服务器不可用等）：空串表示已恢复
+    _danmakuErrorSub = client.errors.listen((message) {
+      if (!mounted) return;
+      setState(() => _danmakuError = message.isEmpty ? null : message);
+    });
     try {
       // 播放页已有真实房间号，传给弹幕客户端省掉一次房间查询（首帧更快）
       await client.start(widget.room.roomId, realRoomId: widget.room.roomId);
@@ -259,6 +278,7 @@ class _PlayerPageState extends State<PlayerPage> {
   void dispose() {
     _hideTimer?.cancel();
     _danmakuStatusSub?.cancel();
+    _danmakuErrorSub?.cancel();
     _danmaku?.dispose();
     _danmaku = null;
     _player.dispose();
@@ -302,7 +322,11 @@ class _PlayerPageState extends State<PlayerPage> {
                 stream: _danmaku?.messages ?? Stream<DanmakuMessage>.empty(),
                 errorHint: _danmakuError,
                 width: _danmuPanelWidth,
-                onResize: (width) => setState(() => _danmuPanelWidth = width),
+                onResize: (width) {
+                  setState(() => _danmuPanelWidth = width);
+                  // 记住宽度（DTV 存 localStorage，这里存 SharedPreferences）
+                  AppSettings.instance.danmuPanelWidth = width;
+                },
                 onClose: () => setState(() => _danmuPanelOpen = false),
               ),
           ],
@@ -830,6 +854,8 @@ class _PlayerPageState extends State<PlayerPage> {
       onSelected: (lineId) {
         if (lineId == _lineId) return;
         setState(() => _lineId = lineId);
+        // 记住该平台上次用的线路
+        AppSettings.instance.setLine(widget.room.platform, lineId);
         _openCurrent();
       },
       itemBuilder: (context) => widget.lines
@@ -888,6 +914,8 @@ class _PlayerPageState extends State<PlayerPage> {
           _variant = variant;
           // 切档位后该档位可能没有当前线路，交给 urlForLine 回退。
         });
+        // 记住该平台上次用的档位
+        AppSettings.instance.setQuality(widget.room.platform, _variant.id);
         _openCurrent();
       },
       itemBuilder: (context) => widget.variants

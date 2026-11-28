@@ -92,13 +92,14 @@ class DouyuClient extends PlatformClient {
   /// 对齐 DTV `SearchAnchor`：`filterType=0`；结果里只有 `type==1` 是主播用户
   /// （其余是分类/视频等混合结果）。房间号优先取 `rid`，缺失时从 `bkUrl` 末段取。
   @override
-  Future<List<SearchHit>> search(String keyword) async {
+  Future<List<SearchHit>> search(String keyword, {int page = 1}) async {
+        final safePage = page < 1 ? 1 : page;
     final text = keyword.trim();
     if (text.isEmpty) return const [];
 
     final did = _makeSearchDid();
     final target = '$_urlSearchUser?kw=${Uri.encodeQueryComponent(text)}'
-        '&page=1&pageSize=20&filterType=0';
+        '&page=$safePage&pageSize=20&filterType=0';
 
     final json = await _http.getJson(target, headers: {
       'User-Agent': _desktopUA,

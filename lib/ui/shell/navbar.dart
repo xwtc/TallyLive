@@ -1,3 +1,6 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:tallylive/core/feed_ui.dart';
 import 'package:tallylive/core/models.dart';
@@ -22,7 +25,7 @@ class Navbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final bar = Container(
       height: TallySize.navbar,
       decoration: const BoxDecoration(
         color: TallyColors.base,
@@ -60,7 +63,20 @@ class Navbar extends StatelessWidget {
         ],
       ),
     );
+    // 隐藏系统标题栏后窗口就失去了原生拖动区域，
+    // 这里用 DragToMoveArea 把顶栏变成可拖拽的「标题栏」；
+    // 双击顶栏空白处切换最大化（Windows 习惯）。
+    if (!_hasNativeChrome) return bar;
+    return DragToMoveArea(child: bar);
   }
+}
+
+/// 是否使用自绘窗口装饰（Windows / Linux）。
+///
+/// macOS 用系统红绿灯、移动端没有窗口概念，都不需要额外拖动层。
+bool get _hasNativeChrome {
+  if (kIsWeb) return false;
+  return Platform.isLinux || Platform.isWindows;
 }
 
 /// 工具组容器（对齐 DTV 的 `.toolGroup`：凹槽底 + 胶囊）。

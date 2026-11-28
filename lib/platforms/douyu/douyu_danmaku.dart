@@ -25,6 +25,8 @@ class DouyuDanmakuClient implements DanmakuClient {
   final StreamController<DanmakuMessage> _messages =
       StreamController<DanmakuMessage>.broadcast();
   final StreamController<bool> _connected = StreamController<bool>.broadcast();
+  final StreamController<String> _errors =
+      StreamController<String>.broadcast();
 
   Socket? _socket;
   StreamSubscription<Uint8List>? _subscription;
@@ -53,6 +55,9 @@ class DouyuDanmakuClient implements DanmakuClient {
 
   @override
   Stream<bool> get connected => _connected.stream;
+
+  @override
+  Stream<String> get errors => _errors.stream;
 
   @override
   Future<void> start(String roomId, {String? realRoomId}) async {
@@ -91,6 +96,7 @@ class DouyuDanmakuClient implements DanmakuClient {
   Future<void> dispose() async {
     await stop();
     await _messages.close();
+    await _errors.close();
     await _connected.close();
   }
 
@@ -155,7 +161,8 @@ class DouyuDanmakuClient implements DanmakuClient {
     _heartbeat?.cancel();
     _heartbeat = Timer.periodic(_heartbeatInterval, (_) => _write('type@=mrkl/'));
 
-    if (!_connected.isClosed) _connected.add(true);
+    if (!_errors.isClosed) _errors.add('');
+      if (!_connected.isClosed) _connected.add(true);
   }
 
   void _write(String message) {
@@ -169,6 +176,8 @@ class DouyuDanmakuClient implements DanmakuClient {
   }
 
   void _scheduleReconnect(Object error) {
+    // 失败原因上报给界面，否则用户只看到「正在连接…」
+    if (!_errors.isClosed) _errors.add(error.toString());
     if (_stopped) return;
     _heartbeat?.cancel();
     _heartbeat = null;

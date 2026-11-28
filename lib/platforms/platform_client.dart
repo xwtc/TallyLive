@@ -33,6 +33,6 @@ abstract class PlatformClient {
       throw UnimplementedError('${platform.label} 的 fetchLiveList 尚未实现');
 
   /// 搜索主播/房间（抖音只支持房间号）。
-  Future<List<SearchHit>> search(String keyword) async =>
+  Future<List<SearchHit>> search(String keyword, {int page = 1}) async =>
       throw UnimplementedError('${platform.label} 的 search 尚未实现');
 }

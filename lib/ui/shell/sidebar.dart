@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:tallylive/core/feed_ui.dart';
 import 'package:tallylive/core/follows.dart';
+import 'package:tallylive/core/settings.dart';
 import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/ui/components/atoms.dart';
 import 'package:tallylive/ui/components/ring_progress.dart';
@@ -22,7 +23,7 @@ class Sidebar extends StatefulWidget {
 }
 
 class _SidebarState extends State<Sidebar> {
-  bool _collapsed = false;
+  bool _collapsed = AppSettings.instance.sidebarCollapsed;
 
   /// 关注栏内搜索。
   final TextEditingController _search = TextEditingController();
@@ -32,6 +33,13 @@ class _SidebarState extends State<Sidebar> {
   bool _refreshing = false;
   int _refreshDone = 0;
   int _refreshTotal = 0;
+
+  /// 收起/展开并记住状态（DTV 也持久化这个开关）。
+  void _setCollapsed(bool value) {
+    if (_collapsed == value) return;
+    setState(() => _collapsed = value);
+    AppSettings.instance.sidebarCollapsed = value;
+  }
 
   @override
   void dispose() {
@@ -87,12 +95,12 @@ class _SidebarState extends State<Sidebar> {
           _SideAction(
             icon: Icons.chevron_right,
             tooltip: '展开侧栏',
-            onTap: () => setState(() => _collapsed = false),
+            onTap: () => _setCollapsed(false),
           ),
           _SideAction(
             icon: Icons.unfold_more,
             tooltip: '展开全部主播',
-            onTap: () => setState(() => _collapsed = false),
+            onTap: () => _setCollapsed(false),
           ),
           const Divider(height: 1),
         ],
@@ -135,7 +143,7 @@ class _SidebarState extends State<Sidebar> {
           _SideAction(
             icon: Icons.chevron_left,
             tooltip: '收起侧栏',
-            onTap: () => setState(() => _collapsed = true),
+            onTap: () => _setCollapsed(true),
           ),
           const SizedBox(width: 2),
         ],
