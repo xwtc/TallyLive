@@ -592,10 +592,21 @@ class _PlayerPageState extends State<PlayerPage> {
       child: _AutoHide(
         visible: _controlsVisible,
         alignment: Alignment.bottomCenter,
+        // 对齐 DTV：控件层**没有实心背景**，直接浮在画面上；
+        // 只加一层很淡的底部渐变，保证白色图标在亮画面里也看得清。
         child: Container(
-          color: Colors.black.withValues(alpha: 0.62),
-          padding: const EdgeInsets.symmetric(
-              horizontal: TallySpace.sm, vertical: TallySpace.xs),
+          padding: const EdgeInsets.fromLTRB(
+              TallySpace.md, TallySpace.sm, TallySpace.md, TallySpace.sm + 2),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withValues(alpha: 0),
+                Colors.black.withValues(alpha: 0.55),
+              ],
+            ),
+          ),
           child: Row(
             children: [
               IconButton(
