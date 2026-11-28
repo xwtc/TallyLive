@@ -325,7 +325,7 @@ class _PlayerPageState extends State<PlayerPage> {
                 onResize: (width) {
                   setState(() => _danmuPanelWidth = width);
                   // 记住宽度（DTV 存 localStorage，这里存 SharedPreferences）
-                  AppSettings.instance.danmuPanelWidth = width;
+                  AppSettings.instance.danmakuPanelWidth = width;
                 },
                 onClose: () => setState(() => _danmuPanelOpen = false),
               ),
