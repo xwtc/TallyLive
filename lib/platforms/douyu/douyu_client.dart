@@ -21,7 +21,7 @@ import 'package:tallylive/platforms/platform_client.dart';
 ///   - getH5PlayV1 接口一次只返回一条 URL，所以每个清晰度都要单独请求；
 ///   - 拿到的 ws CDN 直链可能只有 300 秒（expire=300&fcdn=ws），
 ///     需要补 `&expire=0` 让 CDN 按默认时长签发。
-class DouyuClient implements PlatformClient {
+class DouyuClient extends PlatformClient {
   DouyuClient({LiveHttp? http}) : _http = http ?? LiveHttp() {
     _did = _generateDeviceId();
   }

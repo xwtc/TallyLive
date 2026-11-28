@@ -28,7 +28,7 @@ import 'package:tallylive/platforms/platform_client.dart';
 ///
 /// 注意：虎牙给的是 **HTTP-FLV**，这正是 libmpv 相对 WebView 的价值所在
 /// （iOS 的 WKWebView 没有 MSE，播不了 FLV）。
-class HuyaClient implements PlatformClient {
+class HuyaClient extends PlatformClient {
   HuyaClient({LiveHttp? http}) : _http = http ?? LiveHttp();
 
   final LiveHttp _http;
@@ -158,8 +158,8 @@ class HuyaClient implements PlatformClient {
       // 原画不带 ratio；高清取最大码率；标清取最小码率。
       final specs = <({String id, String label, int? ratio})>[
         (id: 'source', label: '原画', ratio: null),
-        if (hdBitrate > 0) (id: 'high', label: '高清 $hdBitrateK', ratio: hdBitrate),
-        if (sdBitrate > 0) (id: 'standard', label: '标清 $sdBitrateK', ratio: sdBitrate),
+        if (hdBitrate > 0) (id: 'high', label: '高清 ${hdBitrate}K', ratio: hdBitrate),
+        if (sdBitrate > 0) (id: 'standard', label: '标清 ${sdBitrate}K', ratio: sdBitrate),
       ];
 
       for (final spec in specs) {

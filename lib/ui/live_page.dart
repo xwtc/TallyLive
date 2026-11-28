@@ -275,7 +275,3 @@ class _LivePageState extends State<LivePage> {
 /// 供「我的」显示当前仓库模式（Mock / 真实）。
 String describeRepositoryMode() =>
     kUseMockData ? 'Mock 数据（离线）' : '真实接口';
-
-/// 让「我的」页显示当前仓库模式。
-String describeRepositoryMode() =>
-    kUseMockData ? 'Mock 数据（离线）' : '真实接口';

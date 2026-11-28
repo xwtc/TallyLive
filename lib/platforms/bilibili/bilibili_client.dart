@@ -13,7 +13,7 @@ import 'package:tallylive/platforms/platform_client.dart';
 ///   - getRoomPlayInfo 一次只返回一个 qn，每个清晰度要单独请求；
 ///   - B 站 FLV 直连会 404，HLS（.m3u8）直连 200 且不需要 Referer，
 ///     所以这里只暴露 HLS 档位。
-class BilibiliClient implements PlatformClient {
+class BilibiliClient extends PlatformClient {
   BilibiliClient({LiveHttp? http}) : _http = http ?? LiveHttp();
 
   final LiveHttp _http;
