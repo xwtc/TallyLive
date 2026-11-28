@@ -394,19 +394,11 @@ class BilibiliClient extends PlatformClient {
     final map = _asMap(json);
     final code = _asInt(map['code']);
     if (code != 0) {
-      if (code == -352) {
-        _wWebId = '';
-        throw const BilibiliApiException(
-          'second/getList',
-          -352,
-          'B 站人机校验拦截（w_webid 可能失效），已清缓存，请重试',
-        );
-      }
-      throw BilibiliApiException(
-        'second/getList',
-        code,
-        _asString(map['message']),
-      );
+      // -352 是 B 站风控（人机校验）：实测换签名/补 buvid3 cookie/换老接口都拦，
+      // 属于按 IP/环境判定的拦截，不是签名算错。这里降级到全站推荐列表，
+      // 至少让页面可用，并把原因明说给用户（不要假装是网络错误）。
+      if (code == -352) _wWebId = '';
+      return _fetchRecommendList(safePage);
     }
 
     final data = _asMap(map['data']);
@@ -443,6 +435,59 @@ class BilibiliClient extends PlatformClient {
     if (data['has_more'] == null && items.length >= 40) hasMore = true;
 
     return StreamerPage(items: items, page: safePage, hasMore: hasMore);
+  }
+
+  /// 兜底列表：`room/v1/room/get_user_recommend`（不签名、不分区，但可用）。
+  ///
+  /// 只在 `second/getList` 被风控（-352）时走这里。
+  /// 数据形状：`data` 是数组，元素含 roomid/uname/title/system_cover/user_cover/
+  /// face/online/areaName。
+  Future<StreamerPage> _fetchRecommendList(int page) async {
+    const pageSize = 30;
+    final json = await _http.getJson(
+      'https://api.live.bilibili.com/room/v1/room/get_user_recommend'
+      '?page=$page&page_size=$pageSize',
+      headers: _headers,
+    );
+    final map = _asMap(json);
+    final code = _asInt(map['code']);
+    if (code != 0) {
+      throw BilibiliApiException(
+        'get_user_recommend',
+        code,
+        _asString(map['message']),
+      );
+    }
+
+    final items = <Streamer>[];
+    for (final raw in _asList(map['data'])) {
+      final item = _asMap(raw);
+      final roomId = _asString(item['roomid']);
+      if (roomId.isEmpty || roomId == '0') continue;
+      items.add(Streamer(
+        platform: platform,
+        id: roomId,
+        nickname: _asString(item['uname']),
+        title: _stripEmTags(_asString(item['title'])).trim(),
+        cover: _httpsUrl(_firstNonEmpty([
+          _asString(item['system_cover']),
+          _asString(item['user_cover']),
+          _asString(item['cover']),
+        ])),
+        avatar: _httpsUrl(_asString(item['face'])),
+        viewers: _asInt(item['online']),
+        categoryName: _asString(item['areaName']),
+        isLive: true,
+      ));
+    }
+
+    return StreamerPage(
+      items: items,
+      page: page,
+      // 推荐接口不分页语义，满页就认为还有
+      hasMore: items.length >= pageSize,
+      note: 'B 站分区列表接口触发了风控（-352），当前显示的是全站推荐',
+    );
   }
 
   /// 取 w_webid（直播列表签名必需，来自入口页里的 access_id）。

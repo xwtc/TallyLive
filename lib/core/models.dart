@@ -203,6 +203,7 @@ class StreamerPage {
     this.page = 1,
     this.hasMore = false,
     this.totalPages = 0,
+    this.note = '',
   });
 
   final List<Streamer> items;
@@ -211,6 +212,10 @@ class StreamerPage {
 
   /// 0 表示上游没给总页数（此时 hasMore 由「本页是否满页」推断）。
   final int totalPages;
+
+  /// 给用户看的一句话说明（如「分区接口触发风控，当前显示全站推荐」）。
+  /// 为空表示正常。
+  final String note;
 
   static const StreamerPage empty = StreamerPage(items: []);
 }

@@ -50,6 +50,9 @@ class _LivePageState extends State<LivePage> {
   bool _loadingMore = false;
   String? _error;
 
+  /// 数据源给的一句话说明（如 B 站被风控时显示推荐列表）。
+  String _note = '';
+
   /// 下拉刷新时保留旧内容，避免闪烁。
   bool _refreshing = false;
 
@@ -144,6 +147,7 @@ class _LivePageState extends State<LivePage> {
         _booting = false;
         _refreshing = false;
         _error = null;
+        if (page == 1) _note = result.note;
       });
     } catch (error) {
       if (!mounted) return;
@@ -254,12 +258,41 @@ class _LivePageState extends State<LivePage> {
             ),
           _buildCategoryBar(),
           TallyHeader(liveCount: _items.where((s) => s.isLive).length),
+          if (_note.isNotEmpty) _buildNote(),
           Expanded(child: _buildBody(isCompact)),
         ],
       ),
     );
   }
 
+  /// 数据源降级提示（例如 B 站列表被风控、当前显示全站推荐）。
+  ///
+  /// 用 stateAmber 而不是红/蓝：这是"能用但降级了"的功能性状态，
+  /// 不是错误（红）也不是可交互（蓝）。
+  Widget _buildNote() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+          horizontal: TallySpace.md, vertical: TallySpace.sm),
+      color: TallyColors.stateAmber.withValues(alpha: 0.10),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline, size: 14, color: TallyColors.stateAmber),
+          const SizedBox(width: TallySpace.sm),
+          Expanded(
+            child: Text(
+              _note,
+              style: const TextStyle(
+                fontSize: 11,
+                color: TallyColors.stateAmber,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   /// 分区横滑条。加载中显示骨架，避免出现又消失的布局跳动。
   Widget _buildCategoryBar() {
     final categories = _flatCategories;
