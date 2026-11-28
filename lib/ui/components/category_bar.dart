@@ -483,13 +483,16 @@ class _PanelGrid extends StatelessWidget {
           spacing: gap,
           runSpacing: gap,
           children: [
-            for (final category in categories)
+            for (var i = 0; i < categories.length; i++)
               SizedBox(
                 width: itemWidth,
-                child: _PanelChip(
-                  label: category.name,
-                  active: category.id == activeId,
-                  onTap: () => onPick(category),
+                child: _PanelReveal(
+                  index: i,
+                  child: _PanelChip(
+                    label: categories[i].name,
+                    active: categories[i].id == activeId,
+                    onTap: () => onPick(categories[i]),
+                  ),
                 ),
               ),
           ],
@@ -498,7 +501,13 @@ class _PanelGrid extends StatelessWidget {
     );
   }
 }
-class _PanelChip extends StatelessWidget {
+/// 面板里的一个分区。
+///
+/// 视觉规则（去掉 DTV 那种"文字 + 下划线"的样子）：
+/// - 默认：无边框、透明底，只显示文字（安静）
+/// - hover：抬起一档底色 + 细描边（明确的可点反馈）
+/// - selected：强调色浅底 + 强调色描边 + 加粗
+class _PanelChip extends StatefulWidget {
   const _PanelChip({
     required this.label,
     required this.active,
@@ -510,37 +519,90 @@ class _PanelChip extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  State<_PanelChip> createState() => _PanelChipState();
+}
+
+class _PanelChipState extends State<_PanelChip> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
+    final Color background;
+    final Color borderColor;
+    if (widget.active) {
+      background = TallyColors.accentSoft;
+      borderColor = TallyColors.signalBlue;
+    } else if (_hovered) {
+      background = TallyColors.raised;
+      borderColor = TallyColors.hairline;
+    } else {
+      background = Colors.transparent;
+      borderColor = Colors.transparent;
+    }
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
         child: AnimatedContainer(
           duration: TallyDuration.fast,
-          height: 36,
+          curve: Curves.easeOut,
+          height: 34,
           padding: const EdgeInsets.symmetric(horizontal: TallySpace.sm),
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: active ? TallyColors.raised : TallyColors.inset,
+            color: background,
             borderRadius: BorderRadius.circular(TallyRadius.pill),
-            border: Border.all(
-              color: active ? TallyColors.signalBlue : Colors.transparent,
-            ),
+            border: Border.all(color: borderColor),
           ),
           child: Text(
-            label,
+            widget.label,
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+            // 明确不要下划线（DTV 面板是带下划线的文字，观感偏旧）
             style: TextStyle(
               fontSize: 12,
-              fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-              color:
-                  active ? TallyColors.textPrimary : TallyColors.textSecondary,
+              decoration: TextDecoration.none,
+              fontWeight:
+                  widget.active ? FontWeight.w600 : FontWeight.w400,
+              color: widget.active
+                  ? TallyColors.accentInk
+                  : (_hovered
+                      ? TallyColors.textPrimary
+                      : TallyColors.textSecondary),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 面板项的入场动效：淡入 + 轻微上移，按索引错峰（最多前 12 项）。
+class _PanelReveal extends StatelessWidget {
+  const _PanelReveal({required this.index, required this.child});
+
+  final int index;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final start = (index % 12) * 0.03;
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 260),
+      curve: Interval(start, 1, curve: Curves.easeOutCubic),
+      builder: (context, value, child) => Opacity(
+        opacity: value,
+        child: Transform.translate(
+          offset: Offset(0, (1 - value) * 6),
+          child: child,
+        ),
+      ),
+      child: child,
     );
   }
 }
