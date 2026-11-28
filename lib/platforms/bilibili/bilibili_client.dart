@@ -34,6 +34,29 @@ class BilibiliClient extends PlatformClient {
   static const String _urlDanmuInfo =
       'https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo';
   static const String _urlWbiNav = 'https://api.bilibili.com/x/web-interface/nav';
+  static const String _urlAreaList =
+      'https://api.live.bilibili.com/room/v1/Area/getList';
+  static const String _urlLiveList =
+      'https://api.live.bilibili.com/xlive/web-interface/v1/second/getList';
+
+  /// 直播列表签名的固定密钥（B 站前端 chunk 里硬编码的同一个值）。
+  static const String _listSignSecret = 'ea1db124af3c7062474693fa704f4ff8';
+
+  /// 可能带 access_id（w_webid）的入口页。
+  ///
+  /// 同一个页面有时返回完整 SSR、有时只给空壳，所以多试几个并允许沿用旧值。
+  static const List<String> _wWebIdPages = [
+    'https://live.bilibili.com/lol',
+    'https://live.bilibili.com/',
+    'https://live.bilibili.com/p/eden/area-tags',
+  ];
+
+  String _wWebId = '';
+  DateTime _wWebIdAt = DateTime.fromMillisecondsSinceEpoch(0);
+  static const Duration _wWebIdTTL = Duration(minutes: 30);
+
+  List<CategoryGroup> _categoryCache = const [];
+  DateTime _categoryAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// WBI 签名器（key 内部缓存 30 分钟）。
   late final WbiSigner _wbi = WbiSigner(fetchKeys: _fetchWbiKeys);
@@ -274,6 +297,237 @@ class BilibiliClient extends PlatformClient {
       imgKey: wbiKeyFromUrl(_asString(wbiImg['img_url'])),
       subKey: wbiKeyFromUrl(_asString(wbiImg['sub_url'])),
     );
+  }
+
+  /* -------------------------------------------------- 分区 / 直播列表 */
+
+  /// 分区树：12 个父分区，每个下面若干子分区，id 编码成「父_子」（如 2_86）。
+  @override
+  Future<List<CategoryGroup>> fetchCategories() async {
+    if (_categoryCache.isNotEmpty &&
+        DateTime.now().difference(_categoryAt) < const Duration(minutes: 30)) {
+      return _categoryCache;
+    }
+
+    final json = await _http.getJson(
+      '$_urlAreaList?show_pinyin=1',
+      headers: _headers,
+    );
+    final map = _asMap(json);
+    final code = _asInt(map['code']);
+    if (code != 0) {
+      throw BilibiliApiException('Area/getList', code, _asString(map['msg']));
+    }
+
+    final groups = <CategoryGroup>[];
+    for (final groupItem in _asList(map['data'])) {
+      final group = _asMap(groupItem);
+      final groupId = _asString(group['id']);
+      final children = <Category>[];
+      for (final childItem in _asList(group['list'])) {
+        final child = _asMap(childItem);
+        final childId = _asString(child['id']);
+        if (childId.isEmpty) continue;
+        var parentId = _asString(child['parent_id']);
+        if (parentId.isEmpty) parentId = groupId;
+        children.add(Category(
+          id: '${parentId}_$childId',
+          name: _asString(child['name']).trim(),
+        ));
+      }
+      if (children.isEmpty) continue;
+      groups.add(CategoryGroup(
+        id: groupId,
+        name: _asString(group['name']).trim(),
+        categories: children,
+      ));
+    }
+    if (groups.isEmpty) {
+      throw const BilibiliApiException('Area/getList', -1, '分区表为空');
+    }
+    _categoryCache = groups;
+    _categoryAt = DateTime.now();
+    return groups;
+  }
+
+  /// 拉某个分区的直播列表。categoryId 为空时用「英雄联盟」(2_86) 兜底。
+  @override
+  Future<StreamerPage> fetchLiveList({
+    String? categoryId,
+    int page = 1,
+    int limit = 30,
+  }) async {
+    var areaId = categoryId ?? '';
+    if (areaId.isEmpty) areaId = '2_86';
+
+    final parts = areaId.split('_');
+    if (parts.length != 2) {
+      throw BilibiliApiException('second/getList', -1, '分区 id 需形如 2_86');
+    }
+    final parentId = parts[0];
+    final childId = parts[1];
+    final safePage = page < 1 ? 1 : page;
+
+    final wWebId = await _wWebIdValue();
+
+    // ⚠️ 参数顺序必须与 DTV 完全一致：签名是把 "k=v" 按这个顺序拼串再加 secret。
+    final params = <List<String>>[
+      ['area_id', childId],
+      ['page', '$safePage'],
+      ['parent_area_id', parentId],
+      ['platform', 'web'],
+      ['sort_type', ''],
+      ['vajra_business_key', ''],
+      ['w_webid', wWebId],
+      ['web_location', '444.253'],
+    ];
+    final signed = _listSignQuery(params, DateTime.now().millisecondsSinceEpoch ~/ 1000);
+
+    final json = await _http.getJson(
+      '$_urlLiveList?${signed.query}&w_rid=${signed.wRid}',
+      headers: _headers,
+    );
+    final map = _asMap(json);
+    final code = _asInt(map['code']);
+    if (code != 0) {
+      if (code == -352) {
+        _wWebId = '';
+        throw const BilibiliApiException(
+          'second/getList',
+          -352,
+          'B 站人机校验拦截（w_webid 可能失效），已清缓存，请重试',
+        );
+      }
+      throw BilibiliApiException(
+        'second/getList',
+        code,
+        _asString(map['message']),
+      );
+    }
+
+    final data = _asMap(map['data']);
+    final items = <Streamer>[];
+    for (final raw in _asList(data['list'])) {
+      final item = _asMap(raw);
+      final roomId = _asString(item['roomid']);
+      if (roomId.isEmpty || roomId == '0') continue;
+      var title = _asString(item['title']);
+      if (title.isEmpty) title = _asString(item['area_name']);
+      items.add(Streamer(
+        platform: platform,
+        id: roomId,
+        nickname: _asString(item['uname']),
+        title: _stripEmTags(title).trim(),
+        cover: _httpsUrl(_firstNonEmpty([
+          _asString(item['cover']),
+          _asString(item['user_cover']),
+          _asString(item['system_cover']),
+        ])),
+        avatar: _httpsUrl(_asString(item['face'])),
+        viewers: _asInt(item['online']),
+        categoryName: _firstNonEmpty([
+          _asString(item['area_name']),
+          _asString(item['area_v2_name']),
+          _asString(item['parent_name']),
+        ]),
+        // 该接口只返回在播房间
+        isLive: true,
+      ));
+    }
+
+    var hasMore = _asBool(data['has_more']);
+    if (data['has_more'] == null && items.length >= 40) hasMore = true;
+
+    return StreamerPage(items: items, page: safePage, hasMore: hasMore);
+  }
+
+  /// 取 w_webid（直播列表签名必需，来自入口页里的 access_id）。
+  Future<String> _wWebIdValue() async {
+    if (_wWebId.isNotEmpty &&
+        DateTime.now().difference(_wWebIdAt) < _wWebIdTTL) {
+      return _wWebId;
+    }
+    final stale = _wWebId;
+    for (final pageUrl in _wWebIdPages) {
+      try {
+        final html = await _http.getText(
+          pageUrl,
+          headers: {
+            'User-Agent': _desktopUA,
+            'Referer': 'https://live.bilibili.com/',
+          },
+        );
+        final id = _extractAccessId(html);
+        if (id.isNotEmpty) {
+          _wWebId = id;
+          _wWebIdAt = DateTime.now();
+          return id;
+        }
+      } catch (_) {
+        continue;
+      }
+    }
+    // JWT ttl 24h：刷新失败时沿用旧值还能顶一会儿
+    if (stale.isNotEmpty) return stale;
+    throw const BilibiliApiException('w_webid', -1, '入口页里找不到 access_id');
+  }
+
+  static String _extractAccessId(String html) {
+    for (final needle in ['"access_id":"', '"access_id": "']) {
+      final index = html.indexOf(needle);
+      if (index < 0) continue;
+      final rest = html.substring(index + needle.length);
+      final end = rest.indexOf('"');
+      if (end > 0) return rest.substring(0, end);
+    }
+    return '';
+  }
+
+  /// 直播列表签名：把 "k=v" 按**传入顺序**拼串，再接固定 secret 取 md5。
+  ///
+  /// 注意不做 url 转义（与 DTV 一致）——参数值都是数字/固定串，
+  /// 加了转义反而会让签名和线上不一致。
+  ({String query, String wRid}) _listSignQuery(
+    List<List<String>> params,
+    int wts,
+  ) {
+    final parts = <String>[
+      for (final kv in params) '${kv[0]}=${kv[1]}',
+      'wts=$wts',
+    ];
+    final query = parts.join('&');
+    final wRid = md5.convert(utf8.encode('$query$_listSignSecret')).toString();
+    return (query: query, wRid: wRid);
+  }
+
+  /// 搜索结果里标题常含 `<em class="keyword">`，去掉标签只留文字。
+  static String _stripEmTags(String text) {
+    if (!text.contains('<')) return text;
+    return text.replaceAll(RegExp(r'<[^>]*>'), '');
+  }
+
+  static String _httpsUrl(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return '';
+    if (trimmed.startsWith('//')) return 'https:$trimmed';
+    if (trimmed.startsWith('http://')) {
+      return 'https://${trimmed.substring('http://'.length)}';
+    }
+    return trimmed;
+  }
+
+  static String _firstNonEmpty(List<String> values) {
+    for (final value in values) {
+      if (value.trim().isNotEmpty) return value;
+    }
+    return '';
+  }
+
+  static bool _asBool(Object? value) {
+    if (value is bool) return value;
+    if (value is int) return value != 0;
+    if (value is String) return value == '1' || value.toLowerCase() == 'true';
+    return false;
   }
 
   /// 前端展示的 5 档，与 Go 版 preferredQNOrder 一致。

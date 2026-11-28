@@ -6,23 +6,25 @@ import 'package:tallylive/ui/components/section_header.dart';
 import 'package:tallylive/ui/components/states.dart';
 import 'package:tallylive/ui/components/streamer_card.dart';
 import 'package:tallylive/ui/components/streamer_row.dart';
+import 'package:tallylive/ui/player_entry_page.dart';
 import 'package:tallylive/ui/theme.dart';
 
 /// 「直播」Tab —— 首页。
 ///
-/// 结构（UI-DESIGN §4.1）：
+/// 结构：
 /// ```
-/// [平台分段 / 下拉]        [搜索]
-/// ● 正在直播 N                       ← tally 行
-/// 关注中在播（列表行；空态引导）
-/// 平台精选（封面网格；无限滚动）
+/// [平台分段 / 下拉]                     [搜索]
+/// 分区 chip 横滑（一级分组 → 二级分区扁平化，只显示前 N 个）
+/// ● 正在直播 N
+/// 精选：桌面网格 / 手机列表，无限滚动 + 下拉刷新
 /// ```
 ///
-/// 数据来自 [LiveRepository]（当前为 Mock，离线可跑）。
+/// 数据全部来自真实接口（[LiveRepository] → PlatformLiveRepository），
+/// 只有 B站/斗鱼 实现了列表；其它平台由 [LiveRepository.supportedPlatforms] 过滤。
 class LivePage extends StatefulWidget {
   const LivePage({super.key, this.repository});
 
-  /// 允许注入（便于以后接真实仓库 / 测试）。
+  /// 允许注入（测试 / 以后接缓存层）。
   final LiveRepository? repository;
 
   @override
@@ -30,98 +32,178 @@ class LivePage extends StatefulWidget {
 }
 
 class _LivePageState extends State<LivePage> {
-  static const List<LivePlatform> _platforms = [
-    LivePlatform.douyu,
-    LivePlatform.huya,
-    LivePlatform.douyin,
-    LivePlatform.bilibili,
-  ];
-
   late final LiveRepository _repo = widget.repository ?? createLiveRepository();
 
-  /// null = 全部平台
-  LivePlatform? _platform = LivePlatform.douyu;
+  late LivePlatform _platform = _repo.supportedPlatforms.first;
 
   final ScrollController _scroll = ScrollController();
+  final ScrollController _categoryScroll = ScrollController();
+
+  List<CategoryGroup> _groups = const [];
+  String? _categoryId;
 
   final List<Streamer> _items = [];
   int _page = 0;
   bool _hasMore = true;
-  bool _loading = false;
-  bool _initialLoading = true;
+
+  bool _booting = true;
+  bool _loadingMore = false;
   String? _error;
+
+  /// 下拉刷新时保留旧内容，避免闪烁。
+  bool _refreshing = false;
 
   @override
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
-    _loadFirstPage();
+    _bootstrap();
   }
 
   @override
   void dispose() {
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
+    _categoryScroll.dispose();
     super.dispose();
   }
 
   void _onScroll() {
     if (!_scroll.hasClients) return;
-    final remaining = _scroll.position.maxScrollExtent - _scroll.position.pixels;
-    if (remaining < 400) _loadMore();
+    final remaining =
+        _scroll.position.maxScrollExtent - _scroll.position.pixels;
+    if (remaining < 480) _loadMore();
+  }
+
+  /// 首次/切平台：先拉分区，再拉第一页。
+  Future<void> _bootstrap({bool keepContent = false}) async {
+    setState(() {
+      _booting = !keepContent;
+      _refreshing = keepContent;
+      _error = null;
+      if (!keepContent) {
+        _groups = const [];
+        _items.clear();
+        _page = 0;
+        _hasMore = true;
+        _categoryId = null;
+      }
+    });
+
+    try {
+      final groups = await _repo.fetchCategories(_platform);
+      if (!mounted) return;
+      final firstCategory = groups.isNotEmpty && groups.first.categories.isNotEmpty
+          ? groups.first.categories.first.id
+          : null;
+      setState(() {
+        _groups = groups;
+        _categoryId = firstCategory;
+      });
+      await _loadFirstPage();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = _friendlyError(error);
+        _booting = false;
+        _refreshing = false;
+      });
+    }
   }
 
   Future<void> _loadFirstPage() async {
     setState(() {
-      _initialLoading = true;
-      _error = null;
       _items.clear();
       _page = 0;
       _hasMore = true;
     });
-    await _loadMore(initial: true);
+    await _fetchPage(1);
   }
 
-  Future<void> _loadMore({bool initial = false}) async {
-    if (_loading || !_hasMore) return;
-    // 「全部」平台时先按斗鱼拉（后续接真实实现再按平台聚合）
-    final platform = _platform ?? LivePlatform.douyu;
-    setState(() => _loading = true);
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore || _booting || _refreshing) return;
+    await _fetchPage(_page + 1);
+  }
+
+  Future<void> _fetchPage(int page) async {
+    if (_loadingMore) return;
+    setState(() => _loadingMore = true);
     try {
       final result = await _repo.fetchLiveList(
-        platform: platform,
-        page: _page + 1,
+        platform: _platform,
+        categoryId: _categoryId,
+        page: page,
       );
       if (!mounted) return;
       setState(() {
+        if (page == 1) _items.clear();
         _items.addAll(result.items);
-        _page = result.page == 0 ? _page : _page + 1;
+        _page = page;
         _hasMore = result.hasMore;
-        _loading = false;
-        _initialLoading = false;
+        _loadingMore = false;
+        _booting = false;
+        _refreshing = false;
         _error = null;
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _loading = false;
-        _initialLoading = false;
-        if (initial || _items.isEmpty) {
-          _error = error.toString();
-        }
+        _loadingMore = false;
+        _booting = false;
+        _refreshing = false;
+        // 只有第一页失败才整页报错；翻页失败静默（保留已有内容）
+        if (page == 1) _error = _friendlyError(error);
       });
     }
   }
 
-  void _selectPlatform(LivePlatform? platform) {
+  String _friendlyError(Object error) {
+    final text = error.toString();
+    if (text.contains('UnimplementedError')) return '该平台的列表接口尚未接入';
+    if (text.contains('-352')) return 'B 站要求人机校验，请稍后重试';
+    return text.length > 120 ? '${text.substring(0, 120)}…' : text;
+  }
+
+  void _selectPlatform(LivePlatform platform) {
     if (platform == _platform) return;
     setState(() => _platform = platform);
-    _loadFirstPage();
+    _bootstrap();
+  }
+
+  void _selectCategory(String categoryId) {
+    if (categoryId == _categoryId) return;
+    setState(() => _categoryId = categoryId);
+    _bootstrap(keepContent: true);
+  }
+
+  Future<void> _openStreamer(Streamer streamer) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PlayerEntryPage(
+          platform: streamer.platform,
+          roomId: streamer.id,
+          fallbackTitle: streamer.title.isEmpty
+              ? streamer.nickname
+              : '${streamer.nickname} · ${streamer.title}',
+          repository: _repo,
+        ),
+      ),
+    );
+  }
+
+  /// 当前可切换的分区（把分组里的二级分区扁平化）。
+  List<Category> get _flatCategories {
+    final out = <Category>[];
+    for (final group in _groups) {
+      out.addAll(group.categories);
+    }
+    return out;
   }
 
   @override
   Widget build(BuildContext context) {
-    final isCompact = MediaQuery.sizeOf(context).width < TallyBreakpoints.compact;
+    final width = MediaQuery.sizeOf(context).width;
+    final isCompact = width < TallyBreakpoints.compact;
 
     return Scaffold(
       backgroundColor: TallyColors.base,
@@ -134,15 +216,18 @@ class _LivePageState extends State<LivePage> {
             Padding(
               padding: const EdgeInsets.only(right: TallySpace.sm),
               child: PlatformSegments(
-                platforms: _platforms,
+                platforms: _repo.supportedPlatforms,
                 selected: _platform,
-                onSelected: _selectPlatform,
+                onSelected: (platform) {
+                  if (platform != null) _selectPlatform(platform);
+                },
+                includeAll: false,
               ),
             ),
           IconButton(
-            tooltip: '搜索',
-            onPressed: () => _showComingSoon('搜索'),
-            icon: const Icon(Icons.search, size: 20),
+            tooltip: '刷新',
+            onPressed: _booting ? null : () => _bootstrap(keepContent: true),
+            icon: const Icon(Icons.refresh, size: 20),
             color: TallyColors.textSecondary,
           ),
           const SizedBox(width: TallySpace.sm),
@@ -153,17 +238,21 @@ class _LivePageState extends State<LivePage> {
           if (isCompact)
             Padding(
               padding: const EdgeInsets.fromLTRB(
-                  TallySpace.md, TallySpace.sm, TallySpace.md, TallySpace.sm),
+                  TallySpace.md, TallySpace.sm, TallySpace.md, 0),
               child: Row(
                 children: [
                   PlatformDropdown(
-                    platforms: _platforms,
+                    platforms: _repo.supportedPlatforms,
                     selected: _platform,
-                    onSelected: _selectPlatform,
+                    onSelected: (platform) {
+                      if (platform != null) _selectPlatform(platform);
+                    },
+                    includeAll: false,
                   ),
                 ],
               ),
             ),
+          _buildCategoryBar(),
           TallyHeader(liveCount: _items.where((s) => s.isLive).length),
           Expanded(child: _buildBody(isCompact)),
         ],
@@ -171,47 +260,110 @@ class _LivePageState extends State<LivePage> {
     );
   }
 
+  /// 分区横滑条。加载中显示骨架，避免出现又消失的布局跳动。
+  Widget _buildCategoryBar() {
+    final categories = _flatCategories;
+    return SizedBox(
+      height: 44,
+      child: _bootCategoriesPending
+          ? ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(
+                  horizontal: TallySpace.md, vertical: TallySpace.sm),
+              itemCount: 6,
+              separatorBuilder: (_, __) => const SizedBox(width: TallySpace.sm),
+              itemBuilder: (_, __) =>
+                  const SkeletonBox(width: 64, height: 24, radius: 12),
+            )
+          : ListView.separated(
+              controller: _categoryScroll,
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(
+                  horizontal: TallySpace.md, vertical: TallySpace.sm),
+              itemCount: categories.length,
+              separatorBuilder: (_, __) => const SizedBox(width: TallySpace.xs),
+              itemBuilder: (context, index) {
+                final category = categories[index];
+                return _CategoryChip(
+                  label: category.name,
+                  selected: category.id == _categoryId,
+                  onTap: () => _selectCategory(category.id),
+                );
+              },
+            ),
+    );
+  }
+
+  bool get _bootCategoriesPending => _booting && _groups.isEmpty;
+
   Widget _buildBody(bool isCompact) {
-    if (_initialLoading) {
+    final Widget child;
+    if (_booting) {
+      child = _buildSkeleton(isCompact);
+    } else if (_error != null) {
+      child = ErrorState(
+        message: _error!,
+        onRetry: () => _bootstrap(),
+      );
+    } else if (_items.isEmpty) {
+      child = const EmptyState(
+        icon: Icons.live_tv_outlined,
+        message: '这个分区现在没有在播的房间\n换一个分区看看',
+      );
+    } else {
+      child = _buildContent(isCompact);
+    }
+
+    // 状态切换统一淡入，避免骨架 → 内容硬切
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      child: KeyedSubtree(
+        key: ValueKey<String>(
+          '${_booting ? 'boot' : _error != null ? 'err' : _items.isEmpty ? 'empty' : 'list'}-$_platform-$_categoryId',
+        ),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _buildSkeleton(bool isCompact) {
+    if (isCompact) {
       return ListView.separated(
         padding: const EdgeInsets.all(TallySpace.md),
-        itemCount: 6,
-        separatorBuilder: (_, __) => const SizedBox(height: TallySpace.sm),
+        itemCount: 7,
+        separatorBuilder: (_, __) => const SizedBox(height: TallySpace.xs),
         itemBuilder: (_, __) => const SkeletonRow(),
       );
     }
-    if (_error != null) {
-      return ErrorState(message: _error!, onRetry: _loadFirstPage);
-    }
+    return GridView.builder(
+      padding: const EdgeInsets.all(TallySpace.md),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 320,
+        mainAxisSpacing: TallySpace.lg,
+        crossAxisSpacing: TallySpace.md,
+        childAspectRatio: 1.32,
+      ),
+      itemCount: 8,
+      itemBuilder: (_, __) => const SkeletonCard(),
+    );
+  }
 
+  Widget _buildContent(bool isCompact) {
     return RefreshIndicator(
       color: TallyColors.signalBlue,
       backgroundColor: TallyColors.raised,
-      onRefresh: _loadFirstPage,
+      onRefresh: () => _bootstrap(keepContent: true),
       child: CustomScrollView(
         controller: _scroll,
         slivers: [
-          // ---- 关注中在播（当前无关注数据，显示空态引导）----
-          const SliverToBoxAdapter(
-            child: SectionHeader(title: '关注中在播'),
-          ),
-          const SliverToBoxAdapter(
-            child: SizedBox(
-              height: 160,
-              child: EmptyState(
-                message: '还没有关注的直播间\n可以先去分区里找找',
-                icon: Icons.star_border,
-              ),
-            ),
-          ),
-
-          // ---- 平台精选 ----
           SliverToBoxAdapter(
             child: SectionHeader(
               title: '平台精选',
               count: _items.length,
               trailingLabel: '刷新',
-              onTrailingTap: _loadFirstPage,
+              onTrailingTap: () => _bootstrap(keepContent: true),
             ),
           ),
           SliverPadding(
@@ -221,35 +373,42 @@ class _LivePageState extends State<LivePage> {
                     itemCount: _items.length,
                     separatorBuilder: (_, __) =>
                         const SizedBox(height: TallySpace.xs),
-                    itemBuilder: (context, index) => StreamerRow(
-                      streamer: _items[index],
-                      onTap: () => _openStreamer(_items[index]),
+                    itemBuilder: (context, index) => Reveal(
+                      index: index,
+                      child: StreamerRow(
+                        streamer: _items[index],
+                        onTap: () => _openStreamer(_items[index]),
+                      ),
                     ),
                   )
                 : SliverGrid(
                     gridDelegate:
                         const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 300,
+                      maxCrossAxisExtent: 320,
                       mainAxisSpacing: TallySpace.lg,
                       crossAxisSpacing: TallySpace.md,
-                      childAspectRatio: 0.92,
+                      childAspectRatio: 1.32,
                     ),
                     delegate: SliverChildBuilderDelegate(
-                      (context, index) => StreamerCard(
-                        streamer: _items[index],
-                        onTap: () => _openStreamer(_items[index]),
+                      (context, index) => Reveal(
+                        index: index,
+                        child: StreamerCard(
+                          streamer: _items[index],
+                          onTap: () => _openStreamer(_items[index]),
+                        ),
                       ),
                       childCount: _items.length,
                     ),
                   ),
           ),
           SliverToBoxAdapter(
-            child: _loading
+            child: _loadingMore
                 ? const LoadingMore()
                 : (_hasMore
                     ? const SizedBox(height: 32)
                     : const Padding(
-                        padding: EdgeInsets.symmetric(vertical: TallySpace.lg),
+                        padding:
+                            EdgeInsets.symmetric(vertical: TallySpace.lg),
                         child: Center(
                           child: Text('没有更多了', style: TallyType.meta),
                         ),
@@ -259,19 +418,78 @@ class _LivePageState extends State<LivePage> {
       ),
     );
   }
+}
 
-  void _openStreamer(Streamer streamer) {
-    // 播放页需要真实取流；Mock 数据没有地址，先提示。
-    _showComingSoon('播放「${streamer.nickname}」');
-  }
+/// 入场动效：淡入 + 轻微上移，按索引错开，形成"自上而下铺开"的节奏。
+class Reveal extends StatelessWidget {
+  const Reveal({super.key, required this.index, required this.child});
 
-  void _showComingSoon(String what) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$what 待接入')),
+  final int index;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final start = (index % 12) * 0.04;
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 340),
+      curve: Interval(start, 1, curve: Curves.easeOutCubic),
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, (1 - value) * 10),
+            child: child,
+          ),
+        );
+      },
+      child: child,
     );
   }
 }
 
-/// 供「我的」显示当前仓库模式（Mock / 真实）。
-String describeRepositoryMode() =>
-    kUseMockData ? 'Mock 数据（离线）' : '真实接口';
+/// 分区 chip（横滑条里的一个）。
+class _CategoryChip extends StatelessWidget {
+  const _CategoryChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          height: 28,
+          padding: const EdgeInsets.symmetric(horizontal: TallySpace.md),
+          alignment: Alignment.center,
+          decoration: selected
+              ? TallyDecor.selected
+              : BoxDecoration(
+                  color: TallyColors.surface,
+                  borderRadius: BorderRadius.circular(TallyRadius.card),
+                  border: Border.all(color: TallyColors.hairline),
+                ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              color: selected
+                  ? TallyColors.textPrimary
+                  : TallyColors.textSecondary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

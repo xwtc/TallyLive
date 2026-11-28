@@ -39,6 +39,9 @@ class DouyuClient extends PlatformClient {
   static const String _coverPrefix = 'https://rpic.douyucdn.cn/';
 
   static const String _urlBetard = 'https://www.douyu.com/betard/';
+  static const String _urlCateList = 'https://m.douyu.com/api/cate/list';
+  static const String _urlDirectory =
+      'https://www.douyu.com/gapi/rkc/directory/%s/%d?limit=%d';
   static const String _urlGetEncryption =
       'https://www.douyu.com/wgapi/livenc/liveweb/websec/getEncryption';
   static const String _urlGetH5Play =
@@ -505,6 +508,149 @@ class DouyuClient extends PlatformClient {
       if (value.isNotEmpty) return value;
     }
     return '';
+  }
+
+  /* -------------------------------------------------- 分区 / 直播列表 */
+
+  List<CategoryGroup> _categoryCache = const [];
+  DateTime _categoryAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// 斗鱼移动端 UA（分区接口走 m.douyu.com）。
+  static const String _mobileUA =
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) '
+      'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 '
+      'Mobile/15E148 Safari/604.1';
+
+  /// 分区树：接口给的是**扁平**的 cate1Info + cate2Info，按 cate1Id 关联。
+  @override
+  Future<List<CategoryGroup>> fetchCategories() async {
+    if (_categoryCache.isNotEmpty &&
+        DateTime.now().difference(_categoryAt) < const Duration(minutes: 30)) {
+      return _categoryCache;
+    }
+
+    final json = await _http.getJson(
+      _urlCateList,
+      headers: {'User-Agent': _mobileUA, 'Referer': 'https://m.douyu.com/'},
+    );
+    final map = _asMap(json);
+    if (_asInt(map['code']) != 0) {
+      throw DouyuException('斗鱼分区接口返回 code=${_asInt(map['code'])}');
+    }
+    final data = _asMap(map['data']);
+    final cate1List = _asList(data['cate1Info']).map(_asMap).toList();
+    final cate2List = _asList(data['cate2Info']).map(_asMap).toList();
+
+    final groups = <CategoryGroup>[];
+    for (final c1 in cate1List) {
+      final parentId = _asString(c1['cate1Id']);
+      if (parentId.isEmpty) continue;
+
+      final children = <Category>[];
+      final seen = <String>{};
+      var hasTogetherWatch = false;
+
+      for (final c2 in cate2List) {
+        if (_asString(c2['cate1Id']) != parentId) continue;
+        final childId = _asString(c2['cate2Id']);
+        if (childId.isEmpty || !seen.add(childId)) continue;
+        final name = _asString(c2['cate2Name']);
+        if (name == '一起看') {
+          // 同名的「一起看」只保留一个（上游可能给不同 id）
+          if (hasTogetherWatch) continue;
+          hasTogetherWatch = true;
+        }
+        children.add(Category(id: childId, name: name));
+      }
+
+      // 旧接口不下发「一起看」，网页端有这个入口；缺失时补一次
+      if (parentId == '2' && !hasTogetherWatch) {
+        children.add(const Category(id: '208', name: '一起看'));
+      }
+      if (children.isEmpty) continue;
+
+      groups.add(CategoryGroup(
+        id: parentId,
+        name: _asString(c1['cate1Name']),
+        categories: children,
+      ));
+    }
+
+    if (groups.isEmpty) throw const DouyuException('斗鱼分区表为空');
+    _categoryCache = groups;
+    _categoryAt = DateTime.now();
+    return groups;
+  }
+
+  /// 按二级分区拉直播列表；categoryId 为空时用「英雄联盟」(1) 兜底。
+  @override
+  Future<StreamerPage> fetchLiveList({
+    String? categoryId,
+    int page = 1,
+    int limit = 30,
+  }) async {
+    final cate2 = (categoryId ?? '').isEmpty ? '1' : categoryId!;
+    final safePage = page < 1 ? 1 : page;
+    final safeLimit = limit <= 0 ? 30 : limit;
+
+    final target = 'https://www.douyu.com/gapi/rkc/directory/2_$cate2/'
+        '$safePage?limit=$safeLimit';
+
+    final json = await _http.getJson(
+      target,
+      headers: {
+        'User-Agent': _desktopUA,
+        'Referer': 'https://www.douyu.com/',
+      },
+    );
+    final map = _asMap(json);
+    if (_asInt(map['code']) != 0) {
+      throw DouyuException(
+        '斗鱼列表接口返回 code=${_asInt(map['code'])} msg=${_asString(map['msg'])}',
+      );
+    }
+
+    final data = _asMap(map['data']);
+    final totalPages = _asInt(data['pgcnt']);
+    final items = <Streamer>[];
+    for (final raw in _asList(data['rl'])) {
+      final item = _asMap(raw);
+      final roomId = _asString(item['rid']);
+      if (roomId.isEmpty) continue;
+
+      var cover = _fullUrl(_coverPrefix, _asString(item['rs16']));
+      if (cover.isEmpty) {
+        cover = _fullUrl(_coverPrefix, _asString(item['rs1']));
+      }
+      var nickname = _asString(item['nn']);
+      if (nickname.isEmpty) nickname = '房间 $roomId';
+
+      // 三级分区响应带 type：1=直播中，0=录播/离线
+      var isLive = true;
+      if (item['type'] != null) isLive = _asInt(item['type']) == 1;
+
+      items.add(Streamer(
+        platform: platform,
+        id: roomId,
+        nickname: nickname,
+        title: _asString(item['rn']),
+        cover: cover,
+        avatar: _douyuAvatarUrl(_asString(item['av'])),
+        viewers: _asInt(item['ol']),
+        categoryName: _asString(item['c2name']),
+        isLive: isLive,
+      ));
+    }
+
+    // 接口忽略 limit、最多返回 120 条，这里按请求页大小截断，让「一页」可预期
+    final sliced = items.length > safeLimit ? items.sublist(0, safeLimit) : items;
+
+    return StreamerPage(
+      items: sliced,
+      page: safePage,
+      hasMore: totalPages > safePage,
+      totalPages: totalPages,
+    );
   }
 }
 

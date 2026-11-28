@@ -1,0 +1,61 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:tallylive/ui/live_page.dart';
+import 'package:tallylive/ui/theme.dart';
+
+import 'fakes.dart';
+
+/// 直播首页的冒烟与状态测试。
+///
+/// 注入 [FakeLiveRepository]，不联网、无延迟，所以不需要推进时间。
+void main() {
+  Widget harness(Widget child) => MaterialApp(
+        theme: buildTallyTheme(),
+        home: child,
+      );
+
+  testWidgets('有数据时渲染标题、tally 行、分区 chip 与卡片', (tester) async {
+    await tester.pumpWidget(harness(
+      LivePage(
+        repository: FakeLiveRepository(streamers: fakeStreamers(count: 6)),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('TallyLive · 在播'), findsOneWidget);
+    expect(find.text('正在直播'), findsOneWidget);
+    expect(find.text('平台精选'), findsOneWidget);
+    // 分区 chip（来自假分区表）
+    expect(find.text('英雄联盟'), findsWidgets);
+    // 主播卡片
+    expect(find.text('主播0'), findsOneWidget);
+  });
+
+  testWidgets('列表为空时显示空态', (tester) async {
+    await tester.pumpWidget(harness(
+      LivePage(repository: FakeLiveRepository(streamers: const [])),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('没有在播的房间'), findsOneWidget);
+  });
+
+  testWidgets('列表接口失败时显示错误态与重试', (tester) async {
+    await tester.pumpWidget(harness(
+      LivePage(repository: FakeLiveRepository(failList: true)),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('重试'), findsOneWidget);
+  });
+
+  testWidgets('分区接口失败时显示错误态', (tester) async {
+    await tester.pumpWidget(harness(
+      LivePage(repository: FakeLiveRepository(failCategories: true)),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('重试'), findsOneWidget);
+    expect(find.text('分区接口失败'), findsNothing); // 已转成友好文案
+  });
+}
