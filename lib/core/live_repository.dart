@@ -59,6 +59,7 @@ class PlatformLiveRepository implements LiveRepository {
   List<LivePlatform> get supportedPlatforms => const [
         LivePlatform.bilibili,
         LivePlatform.douyu,
+        LivePlatform.huya,
       ];
 
   PlatformClient _client(LivePlatform platform) {

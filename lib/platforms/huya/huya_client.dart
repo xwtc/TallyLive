@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
+import 'package:flutter/services.dart' show rootBundle;
+
 import 'package:tallylive/core/http.dart';
 import 'package:tallylive/core/models.dart';
 import 'package:tallylive/platforms/huya/huya_tars.dart';
@@ -41,6 +43,10 @@ class HuyaClient extends PlatformClient {
   static const String _urlProfileRoom =
       'https://mp.huya.com/cache.php?m=Live&do=profileRoom&roomid=%s&showSecret=1';
   static const String _urlWup = 'http://wup.huya.com';
+
+  /// 直播列表（iGid = 二级分区 id）。
+  static const String _urlLiveList =
+      'https://live.huya.com/liveHttpUI/getLiveList?iGid=%s&iPageNo=%d&iPageSize=%d';
 
   /// WUP 请求头里的 UA / Origin / Referer（DTV 照抄 pure_live 的固定值）。
   static const String _huyaHysdkUA =
@@ -176,6 +182,109 @@ class HuyaClient extends PlatformClient {
     }
 
     return StreamInfoResult(room: room, lines: lines, variants: variants);
+  }
+
+  /* -------------------------------------------------- 分区 / 直播列表 */
+
+  List<CategoryGroup> _categoryCache = const [];
+  DateTime _categoryAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// 分区树来自内置资源（DTV 也是 `assets/categories.json`，虎牙没有稳定的分区接口）。
+  ///
+  /// 结构：`[{title, href, subcategories:[{title, href, id}]}]`，
+  /// 分组 id 用下标生成（原表没有分组 id），二级分区用表里的 `id` 当 iGid。
+  @override
+  Future<List<CategoryGroup>> fetchCategories() async {
+    if (_categoryCache.isNotEmpty &&
+        DateTime.now().difference(_categoryAt) < const Duration(minutes: 30)) {
+      return _categoryCache;
+    }
+    final raw = await rootBundle.loadString('assets/huya_categories.json');
+    final decoded = jsonDecode(raw);
+    final groups = <CategoryGroup>[];
+    var index = 0;
+    for (final item in _asList(decoded)) {
+      final group = _asMap(item);
+      index++;
+      final children = <Category>[];
+      for (final sub in _asList(group['subcategories'])) {
+        final entry = _asMap(sub);
+        final id = _asString(entry['id']);
+        if (id.isEmpty) continue;
+        children.add(Category(id: id, name: _asString(entry['title'])));
+      }
+      if (children.isEmpty) continue;
+      groups.add(CategoryGroup(
+        id: '$index',
+        name: _asString(group['title']),
+        categories: children,
+      ));
+    }
+    if (groups.isEmpty) throw const HuyaException('虎牙分区表为空');
+    _categoryCache = groups;
+    _categoryAt = DateTime.now();
+    return groups;
+  }
+
+  /// 按二级分区拉直播列表；categoryId 为空时用第一个分区兜底。
+  @override
+  Future<StreamerPage> fetchLiveList({
+    String? categoryId,
+    int page = 1,
+    int limit = 30,
+  }) async {
+    var gid = (categoryId ?? '').trim();
+    if (gid.isEmpty) {
+      final groups = await fetchCategories();
+      gid = groups.first.categories.first.id;
+    }
+    final safePage = page < 1 ? 1 : page;
+    final safeLimit = limit <= 0 ? 30 : limit;
+
+    final url = _urlLiveList
+        .replaceFirst('%s', gid)
+        .replaceFirst('%d', '$safePage')
+        .replaceFirst('%d', '$safeLimit');
+
+    final json = await _http.getJson(url, headers: {
+      'User-Agent': _firefoxUA,
+      'Referer': 'https://www.huya.com/',
+    });
+    final root = _asMap(json);
+    // 虎牙把业务数据包在 data 里；返回 200 也可能带 status
+    final data = _asMap(root['data']);
+    final list = _asList(data['vList']);
+
+    final items = <Streamer>[];
+    for (final raw in list) {
+      final item = _asMap(raw);
+      final roomId = _asString(item['lProfileRoom']);
+      if (roomId.isEmpty) continue;
+      var nickname = _asString(item['sNick']);
+      if (nickname.isEmpty) nickname = '房间 $roomId';
+      items.add(Streamer(
+        platform: platform,
+        id: roomId,
+        nickname: nickname,
+        title: _asString(item['sIntroduction']),
+        cover: _enforceHttps(_asString(item['sScreenshot'])),
+        avatar: _enforceHttps(_asString(item['sAvatar180'])),
+        viewers: _asInt(item['lUserCount']),
+        categoryName: _firstNonEmpty([
+          _asString(item['sGameFullName']),
+          _asString(item['sGameHostName']),
+        ]),
+        isLive: true,
+      ));
+    }
+
+    final totalPages = _asInt(data['iTotalPage']);
+    return StreamerPage(
+      items: items,
+      page: safePage,
+      hasMore: totalPages > safePage,
+      totalPages: totalPages,
+    );
   }
 
   /* --------------------------------------------------------------- 防伪码 */

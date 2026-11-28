@@ -38,6 +38,8 @@ class BilibiliClient extends PlatformClient {
   static const String _urlDanmuInfo =
       'https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo';
   static const String _urlWbiNav = 'https://api.bilibili.com/x/web-interface/nav';
+  static const String _urlMasterInfo =
+      'https://api.live.bilibili.com/live_user/v1/Master/info';
   static const String _urlAreaList =
       'https://api.live.bilibili.com/room/v1/Area/getList';
   static const String _urlLiveList =
@@ -94,11 +96,29 @@ class BilibiliClient extends PlatformClient {
     final realRoomId = _asString(data['room_id']);
     final liveStatus = _asInt(data['live_status']);
 
-    // 主播昵称/头像在 data.anchor_info.base_info 里（uname / face）。
-    // 之前这里写死空串，导致播放页顶栏没有头像、关注进侧栏只显示房间号。
-    final baseInfo = _asMap(_asMap(data['anchor_info'])['base_info']);
-    final nickname = _asString(baseInfo['uname']).trim();
-    final avatar = _httpsUrl(_asString(baseInfo['face']));
+    // 主播昵称/头像不在 get_info 里（实测 data 没有 anchor_info 字段），
+    // 要再调 live_user/v1/Master/info?uid=…，返回 data.info.{uname,face}。
+    // 之前这里写死空串，导致播放页顶栏没头像、关注进侧栏只显示房间号。
+    var nickname = '';
+    var avatar = '';
+    final uid = _asString(data['uid']);
+    if (uid.isNotEmpty && uid != '0') {
+      try {
+        final master = await _http.getJson(
+          _urlMasterInfo,
+          headers: _headers,
+          query: {'uid': uid},
+        );
+        final masterMap = _asMap(master);
+        if (_asInt(masterMap['code']) == 0) {
+          final info = _asMap(_asMap(masterMap['data'])['info']);
+          nickname = _asString(info['uname']).trim();
+          avatar = _httpsUrl(_asString(info['face']));
+        }
+      } catch (_) {
+        // 取不到不影响播放，退化成无头像
+      }
+    }
 
     return RoomInfo(
       platform: platform,
