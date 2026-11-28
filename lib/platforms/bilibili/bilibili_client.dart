@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+
 import 'package:tallylive/core/http.dart';
 import 'package:tallylive/core/models.dart';
 import 'package:tallylive/platforms/bilibili/bilibili_wbi.dart';
@@ -564,7 +568,7 @@ class _PlayInfo {
 }
 
 class BilibiliApiException implements Exception {
-  BilibiliApiException(this.endpoint, this.code, this.message);
+  const BilibiliApiException(this.endpoint, this.code, this.message);
   final String endpoint;
   final int code;
   final String message;

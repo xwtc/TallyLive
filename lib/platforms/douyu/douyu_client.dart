@@ -40,8 +40,6 @@ class DouyuClient extends PlatformClient {
 
   static const String _urlBetard = 'https://www.douyu.com/betard/';
   static const String _urlCateList = 'https://m.douyu.com/api/cate/list';
-  static const String _urlDirectory =
-      'https://www.douyu.com/gapi/rkc/directory/%s/%d?limit=%d';
   static const String _urlGetEncryption =
       'https://www.douyu.com/wgapi/livenc/liveweb/websec/getEncryption';
   static const String _urlGetH5Play =
