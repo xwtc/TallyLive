@@ -65,6 +65,13 @@ class _PlayerPageState extends State<PlayerPage> {
   String? _lineId;
   String? _error;
 
+  /// 当前档位的候选播放地址（当前线路优先，其后是同档位其它有地址的线路）。
+  List<String> _candidates = const [];
+  int _candidateIndex = 0;
+
+  /// 是否已因「所有候选都打不开」而重新取过流（只允许一次，避免死循环）。
+  bool _refetchedOnce = false;
+
   /// 弹幕连接状态：null=该平台未接入弹幕，true/false=已连接/重连中。
   bool? _danmakuOnline;
 
@@ -119,6 +126,14 @@ class _PlayerPageState extends State<PlayerPage> {
 
     _player.stream.error.listen((message) {
       if (!mounted) return;
+      // CDN 打不开（B站常见：某个 gotcha/PCDN 镜像挂掉）时自动试下一条线路，
+      // 而不是直接把错误糊到用户脸上。
+      if (message.contains('Failed to open') && _advanceCandidate()) return;
+      if (message.contains('Failed to open') && _refetchedOnce == false) {
+        _refetchedOnce = true;
+        _reloadStreamInfo();
+        return;
+      }
       setState(() => _error = message);
     });
     _player.stream.playing.listen((playing) {
@@ -226,6 +241,20 @@ class _PlayerPageState extends State<PlayerPage> {
     }
   }
 
+  /// 重新连接弹幕：丢掉旧客户端重新 start（用户点「重新连接」时用）。
+  Future<void> _restartDanmaku() async {
+    await _danmakuErrorSub?.cancel();
+    await _danmakuStatusSub?.cancel();
+    await _danmaku?.dispose();
+    _danmaku = null;
+    if (!mounted) return;
+    setState(() {
+      _danmakuError = null;
+      _danmakuOnline = null;
+    });
+    await _startDanmaku();
+  }
+
   /// 打开「当前档位 + 当前线路」的组合。
   Future<void> _openCurrent() async {
     var url = _variant.urlForLine(_lineId);
@@ -249,15 +278,83 @@ class _PlayerPageState extends State<PlayerPage> {
       setState(() => _error = '所有线路都没有可用地址，稍后重试');
       return;
     }
+
+    // 候选地址：当前线路优先，其余同档位里**有地址**的线路作为备选。
+    // B站的 gotcha/PCDN 镜像经常个别节点挂掉，逐条试比直接报错体验好得多。
+    _candidates = [
+      url,
+      for (final line in widget.lines)
+        if (line.id != _lineId && _variant.urlForLine(line.id).isNotEmpty)
+          _variant.urlForLine(line.id),
+    ];
+    _candidateIndex = 0;
+    await _openUrl(_candidates.first);
+  }
+
+  /// 尝试列表里的下一条候选地址；没有下一条就返回 false。
+  bool _advanceCandidate() {
+    if (_candidateIndex + 1 >= _candidates.length) return false;
+    _candidateIndex++;
+    // 异步重开，避免在 stream 回调里直接 await
+    unawaited(_openUrl(_candidates[_candidateIndex]));
+    return true;
+  }
+
+  /// CDN 全挂时重新取一次流（地址可能已过期），只做一次避免死循环。
+  Future<void> _reloadStreamInfo() async {
+    try {
+      final result = await createLiveRepository().fetchStreamInfo(
+        platform: widget.room.platform,
+        roomId: widget.room.roomId,
+      );
+      if (!mounted) return;
+      // 尽量保持当前档位，没有就退回第一档
+      final variant = result.variants.firstWhere(
+        (item) => item.id == _variant.id,
+        orElse: () => result.variants.first,
+      );
+      final candidates = [
+        for (final line in result.lines)
+          if (variant.urlForLine(line.id).isNotEmpty)
+            variant.urlForLine(line.id),
+      ];
+      if (candidates.isEmpty) {
+        setState(() => _error = '重新取流后仍然没有可用地址，请稍后重试');
+        return;
+      }
+      setState(() {
+        _variant = variant;
+        _error = null;
+      });
+      _candidates = candidates;
+      _candidateIndex = 0;
+      await _openUrl(candidates.first);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = '重新取流失败：$error');
+    }
+  }
+
+  String _originFor(LivePlatform platform) {
+    return switch (platform) {
+      LivePlatform.bilibili => 'https://live.bilibili.com',
+      LivePlatform.douyu => 'https://www.douyu.com',
+      LivePlatform.huya => 'https://www.huya.com',
+      LivePlatform.douyin => 'https://live.douyin.com',
+    };
+  }
+
+  Future<void> _openUrl(String url) async {
     setState(() => _error = null);
     await _player.open(
       Media(
         url,
         // 各平台 CDN 对 Referer/UA 的要求不同：
-        // B 站 HLS 直连通常不需要 Referer，带上更稳妥；
+        // B 站对防盗链卡得比较紧（部分 gotcha 节点校验 Origin），
         // 斗鱼 FLV 需要站点 Referer，否则边缘节点可能 403。
         httpHeaders: {
           'Referer': _refererFor(widget.room.platform, widget.room.roomId),
+          'Origin': _originFor(widget.room.platform),
           'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
                   '(KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
@@ -322,6 +419,7 @@ class _PlayerPageState extends State<PlayerPage> {
               DanmuPanel(
                 stream: _danmaku?.messages ?? Stream<DanmakuMessage>.empty(),
                 errorHint: _danmakuError,
+                onRetry: _restartDanmaku,
                 width: _danmuPanelWidth,
                 onResize: (width) {
                   setState(() => _danmuPanelWidth = width);

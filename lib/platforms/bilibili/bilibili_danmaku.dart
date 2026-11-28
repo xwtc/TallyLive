@@ -54,6 +54,11 @@ class BilibiliDanmakuClient implements DanmakuClient {
   /// 取 token 被风控后置位：重连间隔拉长到 60s，别继续打上游。
   bool _tokenBlocked = false;
 
+  /// 连续失败太多次后停止自动重连（交给用户点「重新连接」）。
+  bool _giveUp = false;
+  int _failedAttempts = 0;
+  static const int _maxFailedAttempts = 6;
+
   static const Duration _heartbeatInterval = Duration(seconds: 30);
 
   /// 超过这么久没收到任何帧就认为连接已死（B 站服务端会静默丢弃半死连接）。
@@ -101,6 +106,9 @@ class BilibiliDanmakuClient implements DanmakuClient {
     _roomId = roomId;
     _realRoomId = (realRoomId ?? '').trim();
     _retry = 0;
+    // 每次重新 start（含用户点「重新连接」）都清掉放弃标记与失败计数
+    _failedAttempts = 0;
+    _giveUp = false;
     // 不 await：让播放页先出画面，弹幕在后台连上就出现
     unawaited(_connect());
   }
@@ -137,7 +145,7 @@ class BilibiliDanmakuClient implements DanmakuClient {
   }
 
   Future<void> _connect() async {
-    if (_stopped) return;
+    if (_stopped || _giveUp) return;
 
     try {
       // 1. 拿真实房间号 + 弹幕服务器信息
@@ -178,6 +186,8 @@ class BilibiliDanmakuClient implements DanmakuClient {
           await _openSocket(host, realRoomId, info.token);
           // 连上就先算成功，剩余错误交给 readLoop 之后的退避
           _retry = 0;
+          _failedAttempts = 0;
+          _giveUp = false;
           return;
         } catch (error) {
           lastError = error;
@@ -286,6 +296,15 @@ class BilibiliDanmakuClient implements DanmakuClient {
 
   void _scheduleReconnect(Object error) {
     if (_stopped) return;
+
+    // 连续失败到底就不再空转：保留原因，等用户手动重连
+    _failedAttempts++;
+    if (_failedAttempts >= _maxFailedAttempts) {
+      _giveUp = true;
+      _emitError('$error（已停止自动重试，可点「重新连接」）');
+      if (!_connected.isClosed) _connected.add(false);
+      return;
+    }
     _heartbeat?.cancel();
     _heartbeat = null;
     _watchdog?.cancel();

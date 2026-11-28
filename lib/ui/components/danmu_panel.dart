@@ -18,6 +18,7 @@ class DanmuPanel extends StatefulWidget {
     required this.stream,
     this.width = 196,
     this.errorHint,
+    this.onRetry,
     this.onClose,
     this.onResize,
   });
@@ -28,6 +29,9 @@ class DanmuPanel extends StatefulWidget {
 
   /// 连接失败原因（非空时替代「正在连接」显示，避免把风控误认为渲染问题）。
   final String? errorHint;
+
+  /// 点「重新连接」时回调（连接失败后停止自动重试时才有意义）。
+  final VoidCallback? onRetry;
   final VoidCallback? onClose;
 
   /// 拖拽左侧手柄调整宽度（对齐 DTV：168~320）。
@@ -208,12 +212,38 @@ class _DanmuPanelState extends State<DanmuPanel> {
                   Center(
                     child: Padding(
                       padding: const EdgeInsets.all(TallySpace.md),
-                      child: Text(
-                        widget.errorHint == null
-                            ? '暂无弹幕，正在连接…'
-                            : '弹幕连接失败：${widget.errorHint}',
-                        textAlign: TextAlign.center,
-                        style: TallyType.meta,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            widget.errorHint == null
+                                ? '暂无弹幕，正在连接…'
+                                : '弹幕连接失败：${widget.errorHint}',
+                            textAlign: TextAlign.center,
+                            style: TallyType.meta.copyWith(
+                              height: 1.5,
+                              decoration: TextDecoration.none,
+                            ),
+                          ),
+                          if (widget.errorHint != null &&
+                              widget.onRetry != null) ...[
+                            const SizedBox(height: TallySpace.md),
+                            OutlinedButton(
+                              onPressed: widget.onRetry,
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size(0, 28),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14),
+                                side: const BorderSide(
+                                    color: TallyColors.hairline),
+                              ),
+                              child: const Text(
+                                '重新连接',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   )

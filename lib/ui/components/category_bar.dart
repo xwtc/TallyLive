@@ -440,8 +440,14 @@ class _CategoryBarState extends State<CategoryBar> {
                 TallySpace.lg, TallySpace.md, TallySpace.lg, TallySpace.sm),
             child: Row(
               children: [
-                Text(_activeGroup?.name ?? '分区',
-                    style: TallyType.nickname.copyWith(fontSize: 15)),
+                Text(
+                  _activeGroup?.name ?? '分区',
+                  style: TallyType.nickname.copyWith(
+                    fontSize: 15,
+                    decoration: TextDecoration.none,
+                    decorationColor: Colors.transparent,
+                  ),
+                ),
                 const Spacer(),
                 Text('${_categories.length} 个分区', style: TallyType.meta),
               ],
