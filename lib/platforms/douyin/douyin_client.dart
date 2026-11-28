@@ -46,12 +46,9 @@ class DouyinClient extends PlatformClient {
   static const String _urlReflow =
       'https://webcast.amemv.com/webcast/room/reflow/info/';
 
-  static const Set<String> _msCharset = {
-    ..._letters, ..._digits, '-', '_',
-  };
-  static List<String> get _letters =>
-      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'.split('');
-  static List<String> get _digits => '0123456789'.split('');
+  /// msToken 用的字符集（线上就是字母数字加 -_）。
+  static const String _msCharset =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 
   /// 用 a_bogus 签名并拼出最终 URL。
   String _signed(String endpoint, List<List<String>> params) {
@@ -73,9 +70,8 @@ class DouyinClient extends PlatformClient {
 
   static String _msToken(int length) {
     final random = Random();
-    final chars = _msCharset.toList();
     return List<String>.generate(
-        length, (_) => chars[random.nextInt(chars.length)]).join();
+        length, (_) => _msCharset[random.nextInt(_msCharset.length)]).join();
   }
 
   /* ---------------------------------------------------------------- 分区 */
