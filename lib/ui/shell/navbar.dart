@@ -1,21 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:tallylive/core/feed_ui.dart';
 import 'package:tallylive/core/models.dart';
-import 'package:tallylive/ui/search_page.dart';
+import 'package:tallylive/ui/components/inline_search.dart';
+import 'package:tallylive/ui/shell/window_controls.dart';
 import 'package:tallylive/ui/theme.dart';
 
-/// 顶栏（对齐 DTV 的 Navbar 结构）。
+/// 顶栏（对齐 DTV 的 `Navbar.tsx`）。
 ///
 /// ```
-/// [平台分段：斗鱼 虎牙 抖音 B站]        [搜索框]  [设置][关于]
+/// [平台分段]                      [搜索框] [GitHub][同步][主题]  [─ □ ×]
 /// ```
 ///
 /// 与 DTV 的差异（按需求）：
-/// - 去掉了「打开 GitHub 项目」按钮；
-/// - 去掉了主题配色切换（我们只有一套自定主题，不做预设切换）；
-/// - 去掉了「数据同步」（待接入时不放死按钮）；
-/// - 自绘窗口按钮（最小化/最大化/关闭）没做——我们用的是系统标题栏，
-///   再做一套会和系统按钮重复。
+/// - 去掉「打开 GitHub 项目」按钮
+/// - 去掉主题配色切换（只有一套自定主题）
+/// - **保留自绘窗口按钮**（DTV 也是自绘，通过 `--wails-non-client-region`
+///   注册成原生非客户区；Flutter 没有该机制，用 window_manager 直接控制）
 class Navbar extends StatelessWidget {
   const Navbar({super.key});
 
@@ -23,21 +23,55 @@ class Navbar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: TallySize.navbar,
-      padding: const EdgeInsets.symmetric(horizontal: TallySpace.page),
       decoration: const BoxDecoration(
         color: TallyColors.base,
         border: Border(bottom: BorderSide(color: TallyColors.hairline)),
       ),
       child: Row(
-        children: const [
-          PlatformTabs(),
-          Spacer(),
-          _SearchBox(),
+        children: [
+          const SizedBox(width: TallySpace.page),
+          const PlatformTabs(),
+          const Spacer(),
+          // 内联搜索（聚焦展开 + 自动联想，不跳页面）
+          const InlineSearch(),
+          const SizedBox(width: TallySpace.sm),
+          // 工具组：数据同步
+          _ToolGroup(children: [
+            _ToolButton(
+              icon: Icons.sync_alt,
+              tooltip: '数据同步（待接入）',
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('数据同步待接入')),
+                );
+              },
+            ),
+          ]),
+          const SizedBox(width: TallySpace.sm),
+          // 自绘窗口按钮（最小化 / 最大化 / 关闭）
+          const WindowControls(),
         ],
       ),
     );
   }
 }
+
+/// 工具组容器（对齐 DTV 的 `.toolGroup`：凹槽底 + 胶囊）。
+class _ToolGroup extends StatelessWidget {
+  const _ToolGroup({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: TallyDecor.inset,
+      child: Row(mainAxisSize: MainAxisSize.min, children: children),
+    );
+  }
+}
+
 /// 平台分段控件：胶囊外形 + 凹槽底 + 选中项抬升。
 class PlatformTabs extends StatelessWidget {
   const PlatformTabs({super.key});
@@ -104,7 +138,9 @@ class _PlatformPillState extends State<_PlatformPill> {
           decoration: BoxDecoration(
             color: widget.selected
                 ? TallyColors.raised
-                : (_hovered ? TallyColors.raised.withValues(alpha: 0.6) : Colors.transparent),
+                : (_hovered
+                    ? TallyColors.raised.withValues(alpha: 0.6)
+                    : Colors.transparent),
             borderRadius: BorderRadius.circular(TallyRadius.pill),
           ),
           child: Text(
@@ -123,40 +159,53 @@ class _PlatformPillState extends State<_PlatformPill> {
   }
 }
 
-/// 搜索框（外观对齐 DTV：凹槽底 + 胶囊 + 右侧放大镜）。
-///
-/// 搜索页尚未接入，点击给明确提示，不做假交互。
-class _SearchBox extends StatelessWidget {
-  const _SearchBox();
+class _ToolButton extends StatefulWidget {
+  const _ToolButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    this.active = false,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+  final bool active;
+
+  @override
+  State<_ToolButton> createState() => _ToolButtonState();
+}
+
+class _ToolButtonState extends State<_ToolButton> {
+  bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 280,
-      height: 36,
+    return Tooltip(
+      message: widget.tooltip,
       child: MouseRegion(
-        cursor: SystemMouseCursors.text,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        cursor: SystemMouseCursors.click,
         child: GestureDetector(
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const SearchPage()),
-            );
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: TallySpace.md),
-            decoration: TallyDecor.inset,
-            child: Row(
-              children: const [
-                Expanded(
-                  child: Text(
-                    '搜索关键词或直播间号',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 13, color: TallyColors.textTertiary),
-                  ),
-                ),
-                Icon(Icons.search, size: 17, color: TallyColors.textSecondary),
-              ],
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: TallyDuration.fast,
+            width: 30,
+            height: 30,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: widget.active || _hovered
+                  ? TallyColors.raised
+                  : Colors.transparent,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              widget.icon,
+              size: 16,
+              color: widget.active
+                  ? TallyColors.textPrimary
+                  : TallyColors.textSecondary,
             ),
           ),
         ),

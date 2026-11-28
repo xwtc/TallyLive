@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:tallylive/core/account.dart';
 import 'package:tallylive/core/danmaku.dart';
 import 'package:tallylive/core/danmaku_stats.dart';
 import 'package:tallylive/core/follows.dart';
@@ -16,6 +17,7 @@ import 'package:tallylive/core/settings.dart';
 import 'package:tallylive/platforms/danmaku_factory.dart';
 import 'package:tallylive/ui/components/atoms.dart';
 import 'package:tallylive/ui/components/danmu_panel.dart';
+import 'package:tallylive/ui/components/login_sheet.dart';
 import 'package:tallylive/ui/danmaku_overlay.dart';
 import 'package:tallylive/ui/theme.dart';
 
@@ -518,6 +520,8 @@ class _PlayerPageState extends State<PlayerPage> {
           ],
           const SizedBox(width: 6),
           _buildFollowPill(),
+          const SizedBox(width: 6),
+          _buildLoginPill(),
         ],
       ),
     );
@@ -745,6 +749,66 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   /// 弹幕设置面板（对齐 DTV 的 DanmuSettingsControl：内联在播放页，没有独立设置页）。
+
+  /// 登录胶囊（只对 B站/斗鱼；其它平台没有登录体系）。
+  ///
+  /// 按需求放在播放页，与 DTV 一致：DTV 的登录按钮就在播放器顶栏
+  /// （`BilibiliLoginButton variant="compact"`），不在侧栏。
+  Widget _buildLoginPill() {
+    final platform = widget.room.platform;
+    if (platform != LivePlatform.bilibili && platform != LivePlatform.douyu) {
+      return const SizedBox.shrink();
+    }
+    final loggedIn = AccountStore.instance.hasCookie(platform);
+    return GestureDetector(
+      onTap: () => _openLogin(platform),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(TallyRadius.pill),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                loggedIn ? Icons.person : Icons.qr_code_2,
+                size: 14,
+                color: TallyColors.textSecondary,
+              ),
+              const SizedBox(width: 3),
+              Text(
+                loggedIn ? '已登录' : '扫码登录',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: TallyColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openLogin(LivePlatform platform) async {
+    _showControls();
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: TallyColors.raised,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      builder: (_) => LoginSheet(platform: platform),
+    );
+    if (mounted) setState(() {});
+  }
+
   Future<void> _openDanmakuSettings() async {
     _showControls();
     await showModalBottomSheet<void>(
