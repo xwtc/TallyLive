@@ -27,7 +27,6 @@ class InlineSearch extends StatefulWidget {
 class _InlineSearchState extends State<InlineSearch> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focus = FocusNode();
-  final GlobalKey _rootKey = GlobalKey();
   Timer? _debounce;
 
   bool _expanded = false;
@@ -233,7 +232,6 @@ class _InlineSearchState extends State<InlineSearch> {
 
   @override
   Widget build(BuildContext context) {
-    final showPanel = _expanded && _controller.text.trim().isNotEmpty;
 
     return SizedBox(
       width: _widthExpanded,

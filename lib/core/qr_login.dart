@@ -69,7 +69,7 @@ class DouyuQrLogin {
   Future<QrLoginCode> generate() async {
     final json = await _http.postForm(
       'https://passport.douyu.com/scan/generateCode',
-      {'client_id': '1', 'isMultiAccount': '0'},
+      <String, String>{'client_id': '1', 'isMultiAccount': '0'},
       headers: _headers,
     );
     final map = json is Map ? Map<String, dynamic>.from(json) : <String, dynamic>{};

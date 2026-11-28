@@ -222,14 +222,14 @@ class _SidebarState extends State<Sidebar> {
         entries.add(_groupHeader('未分组', ungrouped.length));
       }
       for (final room in ungrouped) {
-        entries.add(_buildTile(room, key: ValueKey(room.key)));
+        entries.add(KeyedSubtree(key: ValueKey(room.key), child: _buildTile(room)));
       }
     }
     for (final group in groups) {
       final items = rooms.where((room) => room.groupId == group.id).toList();
       entries.add(_groupHeader(group.name, items.length, groupId: group.id));
       for (final room in items) {
-        entries.add(_buildTile(room, key: ValueKey(room.key)));
+        entries.add(KeyedSubtree(key: ValueKey(room.key), child: _buildTile(room)));
       }
     }
     return ListView(
@@ -238,9 +238,8 @@ class _SidebarState extends State<Sidebar> {
     );
   }
 
-  Widget _buildTile(FollowRoom room, {Key? key}) {
+  Widget _buildTile(FollowRoom room) {
     return _SidebarTile(
-      key: key,
       room: room,
       collapsed: false,
       onTap: () => _open(room),
@@ -440,25 +439,6 @@ class _SidebarState extends State<Sidebar> {
     );
     if (choice == null) return;
     await FollowStore.instance.moveToGroup(room.key, choice);
-  }
-
-  /// 账号登录（只对 B站/斗鱼；其它平台没有登录体系）。
-  Future<void> _openLogin() async {
-    final platform = FeedUi.instance.platform ??
-        sharedRepository.supportedPlatforms.first;
-    if (platform != LivePlatform.bilibili && platform != LivePlatform.douyu) {
-      _toast('${platform.label} 没有登录体系');
-      return;
-    }
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: TallyColors.raised,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-      ),
-      builder: (_) => LoginSheet(platform: platform),
-    );
   }
 
   void _toast(String message, {ToastKind kind = ToastKind.info}) {
