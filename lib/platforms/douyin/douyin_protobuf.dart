@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 /// 极简 protobuf 编解码。
@@ -50,7 +51,11 @@ class ProtoReader {
     return out;
   }
 
-  String readString() => String.fromCharCodes(readBytes());
+  /// 读 UTF-8 字符串。
+  ///
+  /// ⚠️ 不能用 String.fromCharCodes：那会把每个字节当成一个码点，
+  /// 中文（UTF-8 三字节）会变成三个乱码字符 —— 抖音弹幕乱码就是这么来的。
+  String readString() => utf8.decode(readBytes(), allowMalformed: true);
 
   /// 跳过当前字段（用于忽略不关心的字段）。
   void skip(int wire) {
@@ -113,6 +118,7 @@ class ProtoWriter {
 
   void writeStringField(int field, String value) {
     if (value.isEmpty) return;
-    writeBytesField(field, value.codeUnits);
+    // 同样必须用 UTF-8 编码（codeUnits 对中文会写错）
+    writeBytesField(field, utf8.encode(value));
   }
 }

@@ -594,9 +594,13 @@ class _PlayerPageState extends State<PlayerPage> {
   /* --------------------------------------------------------------- 底部控制条 */
 
   Widget _buildControlBar() {
-    // 横跨整个宽度（对齐 DTV 的 dock）；它是 Column 的下半部分，
-    // 弹幕面板不会盖到它。
-    return _AutoHide(
+    // 覆盖在画面底部（对齐 DTV 的 controlsDock：absolute bottom:0）。
+    // 必须在 Stack 里用 Positioned，否则会被画面盖住、控件不可见。
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: _AutoHide(
         visible: _controlsVisible,
         alignment: Alignment.bottomCenter,
         // 对齐 DTV：控件层**没有实心背景**，直接浮在画面上；
@@ -736,6 +740,7 @@ class _PlayerPageState extends State<PlayerPage> {
             ],
           ),
         ),
+      ),
     );
   }
 
