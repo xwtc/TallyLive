@@ -133,7 +133,7 @@ class _StreamerCardState extends State<StreamerCard> {
                     ),
                   ),
                   child: Icon(
-                    widget.followed ? Icons.check : Icons.add,
+                    widget.followed ? Icons.star : Icons.star_border,
                     size: 17,
                     color: widget.followed ? Colors.white : Colors.white,
                   ),

@@ -14,6 +14,7 @@ import 'package:tallylive/core/models.dart';
 import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/core/settings.dart';
 import 'package:tallylive/platforms/danmaku_factory.dart';
+import 'package:tallylive/ui/components/atoms.dart';
 import 'package:tallylive/ui/components/danmu_panel.dart';
 import 'package:tallylive/ui/danmaku_overlay.dart';
 import 'package:tallylive/ui/theme.dart';
@@ -114,10 +115,8 @@ class _PlayerPageState extends State<PlayerPage> {
   /// 播放中自动隐藏控件；暂停时保持显示（否则暂停后无从操作）。
   void _scheduleHide() {
     _hideTimer?.cancel();
-    if (!_playing) {
-      if (mounted) setState(() => _controlsVisible = true);
-      return;
-    }
+    // 无条件计时：DTV 也是这么做的 —— 控件只是"浮层"，
+    // 缓冲/暂停时同样该隐藏，鼠标一动或点击画面再出现。
     _hideTimer = Timer(const Duration(milliseconds: 3500), () {
       if (!mounted) return;
       setState(() => _controlsVisible = false);
@@ -371,6 +370,15 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /* --------------------------------------------------------------- 顶部信息条 */
 
+  /// 顶部信息条（对齐 DTV 的播放器顶栏）：
+  ///
+  /// ```
+  /// (X)  ┌──────────────────────────────────────────┐
+  ///      │ (头像) 标题                [直播中] [★ 已关注] │
+  ///      │        虎牙 · DANKING · ID:10188          │
+  ///      └──────────────────────────────────────────┘
+  /// ```
+  /// 半透明深色胶囊浮在画面上（不是占位的实心条），随控件一起自动隐藏。
   Widget _buildTopOverlay() {
     return Positioned(
       top: 0,
@@ -379,124 +387,193 @@ class _PlayerPageState extends State<PlayerPage> {
       child: _AutoHide(
         visible: _controlsVisible,
         alignment: Alignment.topCenter,
-        child: Container(
-          color: Colors.black.withValues(alpha: 0.55),
-          padding: const EdgeInsets.symmetric(
-              horizontal: TallySpace.sm, vertical: TallySpace.xs),
-          child: Row(
-            children: [
-              IconButton(
-                onPressed: widget.onClose ??
-                    () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.arrow_back, size: 20),
-                color: TallyColors.textPrimary,
-                tooltip: '返回',
-              ),
-              if (widget.room.isLive) ...[
-                Container(
-                  margin: const EdgeInsets.only(right: TallySpace.sm),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 7, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: TallyColors.tallyRed.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(TallyRadius.badge),
-                  ),
-                  child: const Text('LIVE', style: TallyType.liveBadge),
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.all(TallySpace.md),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _RoundIconButton(
+                  icon: Icons.close,
+                  tooltip: '关闭',
+                  onTap: widget.onClose ??
+                      () => Navigator.of(context).maybePop(),
                 ),
+                const SizedBox(width: TallySpace.sm),
+                Flexible(child: _buildInfoIsland()),
+                const Spacer(),
+                if (kDiagnosticsEnabled && _danmakuOnline != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: TallySpace.sm),
+                    child: Tooltip(
+                      message: _danmakuOnline! ? '弹幕已连接' : '弹幕重连中',
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _danmakuOnline!
+                              ? TallyColors.signalBlue
+                              : TallyColors.stateAmber,
+                        ),
+                      ),
+                    ),
+                  ),
               ],
-              Expanded(
-                // 右键标题切换弹幕调试面板（仅非 release 构建有效）
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onSecondaryTap: kDiagnosticsEnabled
-                      ? () => setState(() => _showStats = !_showStats)
-                      : null,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        widget.room.title.isEmpty
-                            ? '房间 ${widget.room.roomId}'
-                            : widget.room.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TallyType.nickname.copyWith(fontSize: 14),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        [
-                          widget.room.platform.label,
-                          if (widget.room.nickname.isNotEmpty) widget.room.nickname,
-                          if (widget.room.category.isNotEmpty) widget.room.category,
-                          if (widget.room.online > 0)
-                            '${_formatCount(widget.room.online)} 人气',
-                        ].join(' · '),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TallyType.meta,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              // 星标关注：未关注空心、已关注实心（对齐 DTV 的关注按钮语义）
-              ListenableBuilder(
-                listenable: FollowStore.instance,
-                builder: (context, _) {
-                  final followed = FollowStore.instance.isFollowing(
-                    widget.room.platform,
-                    widget.room.roomId,
-                  );
-                  return IconButton(
-                    tooltip: followed ? '取消关注' : '关注',
-                    iconSize: 20,
-                    onPressed: () async {
-                      final now = await FollowStore.instance.toggle(
-                        platform: widget.room.platform,
-                        roomId: widget.room.roomId,
-                        nickname: widget.room.nickname,
-                        title: widget.room.title,
-                        avatar: widget.room.avatar,
-                        isLive: widget.room.isLive,
-                        viewers: widget.room.online,
-                      );
-                      if (!mounted) return;
-                      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                        SnackBar(content: Text(now ? '已关注' : '已取消关注')),
-                      );
-                    },
-                    icon: Icon(
-                      followed ? Icons.star : Icons.star_border,
-                      color: followed
-                          ? TallyColors.stateAmber
-                          : TallyColors.textSecondary,
-                    ),
-                  );
-                },
-              ),              // 弹幕连接状态圆点（诊断用，release 剔除）
-              if (kDiagnosticsEnabled && _danmakuOnline != null)
-                Tooltip(
-                  message: _danmakuOnline! ? '弹幕已连接' : '弹幕重连中',
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    margin: const EdgeInsets.symmetric(horizontal: 6),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _danmakuOnline!
-                          ? TallyColors.signalBlue
-                          : TallyColors.stateAmber,
-                    ),
-                  ),
-                ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 
+  /// 画面上的半透明信息胶囊：头像 + 标题 + 平台·昵称·ID + 直播中 + 星标关注。
+  Widget _buildInfoIsland() {
+    final room = widget.room;
+    final title = room.title.isEmpty
+        ? (room.nickname.isEmpty ? '房间 ${room.roomId}' : room.nickname)
+        : room.title;
+    // 副标题比 DTV 更详细：平台 · 昵称 · 分区 · 人气 · ID
+    final subtitleParts = <String>[
+      room.platform.label,
+      if (room.nickname.isNotEmpty) room.nickname,
+      if (room.category.isNotEmpty) room.category,
+      if (room.online > 0) '${_formatCount(room.online)} 人气',
+      'ID:${room.roomId}',
+    ];
+
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 520),
+      padding: const EdgeInsets.fromLTRB(6, 5, 8, 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.58),
+        borderRadius: BorderRadius.circular(TallyRadius.pill),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AvatarBox(
+            url: room.avatar,
+            fallbackText: title,
+            size: 34,
+          ),
+          const SizedBox(width: TallySpace.sm),
+          Flexible(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: TallyColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitleParts.join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: TallyColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (room.isLive) ...[
+            const SizedBox(width: TallySpace.sm),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: TallyColors.tallyRed.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(TallyRadius.pill),
+              ),
+              child: const Text('直播中', style: TallyType.liveBadge),
+            ),
+          ],
+          const SizedBox(width: 6),
+          _buildFollowPill(),
+        ],
+      ),
+    );
+  }
+
+  /// 星标关注胶囊：已关注为实心星 + 强调底，未关注为空心星 + 透明底。
+  Widget _buildFollowPill() {
+    return ListenableBuilder(
+      listenable: FollowStore.instance,
+      builder: (context, _) {
+        final followed = FollowStore.instance.isFollowing(
+          widget.room.platform,
+          widget.room.roomId,
+        );
+        return GestureDetector(
+          onTap: () async {
+            final now = await FollowStore.instance.toggle(
+              platform: widget.room.platform,
+              roomId: widget.room.roomId,
+              nickname: widget.room.nickname,
+              title: widget.room.title,
+              avatar: widget.room.avatar,
+              isLive: widget.room.isLive,
+              viewers: widget.room.online,
+            );
+            if (!mounted) return;
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+              SnackBar(content: Text(now ? '已关注' : '已取消关注')),
+            );
+          },
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: AnimatedContainer(
+              duration: TallyDuration.fast,
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(
+                color: followed ? TallyColors.accentSoft : Colors.transparent,
+                borderRadius: BorderRadius.circular(TallyRadius.pill),
+                border: Border.all(
+                  color: followed
+                      ? TallyColors.signalBlue
+                      : Colors.white.withValues(alpha: 0.18),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    followed ? Icons.star : Icons.star_border,
+                    size: 14,
+                    color: followed
+                        ? TallyColors.accentInk
+                        : TallyColors.textSecondary,
+                  ),
+                  const SizedBox(width: 3),
+                  Text(
+                    followed ? '已关注' : '关注',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: followed
+                          ? TallyColors.accentInk
+                          : TallyColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
   /* --------------------------------------------------------------- 底部控制条 */
 
   Widget _buildControlBar() {
@@ -1016,6 +1093,41 @@ class _SettingSlider extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+/// 画面上的圆形图标按钮（关闭/返回等），半透明底浮在视频上。
+class _RoundIconButton extends StatelessWidget {
+  const _RoundIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.black.withValues(alpha: 0.55),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+            ),
+            child: Icon(icon, size: 18, color: TallyColors.textPrimary),
+          ),
+        ),
+      ),
     );
   }
 }
