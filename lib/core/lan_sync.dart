@@ -251,7 +251,9 @@ class LanSync {
       final map = decoded is Map
           ? Map<String, dynamic>.from(decoded)
           : <String, dynamic>{};
-      return importPayload(map);
+      // 必须 await：在 try/finally 里直接返回裸 Future 会让 finally 先跑（关连接），
+      // 也会触发 unawaited_return_in_try_block。
+      return await importPayload(map);
     } finally {
       client.close(force: true);
     }
