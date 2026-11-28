@@ -63,6 +63,9 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// 弹幕连接状态：null=该平台未接入弹幕，true/false=已连接/重连中。
   bool? _danmakuOnline;
+
+  /// 弹幕连接失败的原因（非空时在调试面板与弹幕列表里显示）。
+  String? _danmakuError;
   StreamSubscription<bool>? _danmakuStatusSub;
 
   /// 是否展开弹幕调试面板（右键标题栏切换，仅诊断构建）。
@@ -191,8 +194,9 @@ class _PlayerPageState extends State<PlayerPage> {
     try {
       // 播放页已有真实房间号，传给弹幕客户端省掉一次房间查询（首帧更快）
       await client.start(widget.room.roomId, realRoomId: widget.room.roomId);
-    } catch (_) {
-      // 弹幕失败不影响看画面，静默降级
+    } catch (error) {
+      // 弹幕失败不影响看画面，但要把原因留下来，否则只显示"暂无弹幕"
+      if (mounted) setState(() => _danmakuError = error.toString());
     }
   }
 
@@ -278,6 +282,7 @@ class _PlayerPageState extends State<PlayerPage> {
                 child: DanmuPanel(
                   stream: _danmaku?.messages ??
                       Stream<DanmakuMessage>.empty(),
+                  errorHint: _danmakuError,
                   onClose: () => setState(() => _danmuPanelOpen = false),
                 ),
               ),

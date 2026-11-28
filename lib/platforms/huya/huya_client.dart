@@ -184,6 +184,27 @@ class HuyaClient extends PlatformClient {
     return StreamInfoResult(room: room, lines: lines, variants: variants);
   }
 
+  /* ------------------------------------------------- 弹幕进房参数 */
+
+  /// 取弹幕进房需要的 ayyuid / topSid / subSid。
+  ///
+  /// 这三个值只在 profileRoom 的房间档案里（liveData.uid / stream.*），
+  /// 弹幕 WS 进房包必须带，所以单独暴露一个方法给弹幕客户端用。
+  Future<({int ayyuid, int topSid, int subSid})> fetchHuyaJoinInfo(
+    String roomId,
+  ) async {
+    final data = await _fetchProfile(roomId);
+    final candidates = _parseCandidates(data);
+    final first = candidates.isNotEmpty ? candidates.first : null;
+    final topSid = _asInt(data.raw['topSid']);
+    final subSid = _asInt(data.raw['subSid']);
+    return (
+      ayyuid: _asInt(data.liveData['uid']),
+      topSid: topSid != 0 ? topSid : (first?.channelId ?? 0),
+      subSid: subSid != 0 ? subSid : (first?.channelId ?? 0),
+    );
+  }
+
   /* -------------------------------------------------- 分区 / 直播列表 */
 
   List<CategoryGroup> _categoryCache = const [];

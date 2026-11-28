@@ -182,7 +182,7 @@ class TarsReader {
     return null;
   }
 
-  bool _skipField(int type) {
+  /// 跳过当前字段（供外部遍历结构体用）。`r`n  bool skipField(int type) => _skipField(type);`r`n`r`n  bool _skipField(int type) {
     bool advance(int n) {
       if (pos + n > buf.length) return false;
       pos += n;

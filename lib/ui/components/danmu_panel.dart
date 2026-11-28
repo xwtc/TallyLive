@@ -17,11 +17,15 @@ class DanmuPanel extends StatefulWidget {
     super.key,
     required this.stream,
     this.width = 240,
+    this.errorHint,
     this.onClose,
   });
 
   final Stream<DanmakuMessage> stream;
   final double width;
+
+  /// 连接失败原因（非空时替代「正在连接」显示，避免把风控误认为渲染问题）。
+  final String? errorHint;
   final VoidCallback? onClose;
 
   @override
@@ -134,10 +138,16 @@ class _DanmuPanelState extends State<DanmuPanel> {
             child: Stack(
               children: [
                 if (_messages.isEmpty)
-                  const Center(
-                    child: Text(
-                      '暂无弹幕，正在连接…',
-                      style: TallyType.meta,
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(TallySpace.md),
+                      child: Text(
+                        widget.errorHint == null
+                            ? '暂无弹幕，正在连接…'
+                            : '弹幕连接失败：${widget.errorHint}',
+                        textAlign: TextAlign.center,
+                        style: TallyType.meta,
+                      ),
                     ),
                   )
                 else

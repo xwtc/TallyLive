@@ -2,6 +2,7 @@ import 'package:tallylive/core/danmaku.dart';
 import 'package:tallylive/core/models.dart';
 import 'package:tallylive/platforms/bilibili/bilibili_danmaku.dart';
 import 'package:tallylive/platforms/douyu/douyu_danmaku.dart';
+import 'package:tallylive/platforms/huya/huya_danmaku.dart';
 
 /// 按平台创建弹幕客户端。
 ///
@@ -13,8 +14,9 @@ DanmakuClient? createDanmakuClient(LivePlatform platform) {
     case LivePlatform.douyu:
       return DouyuDanmakuClient();
     case LivePlatform.huya:
+      return HuyaDanmakuClient();
     case LivePlatform.douyin:
-      // 待移植
+      // 抖音弹幕是 protobuf + gzip，尚未移植
       return null;
   }
 }
