@@ -39,6 +39,9 @@ class BilibiliDanmakuClient implements DanmakuClient {
   bool _stopped = true;
   int _sequence = 0;
   String _roomId = '';
+
+  /// 播放页已知的真实房间号（省掉一次 room get_info）。
+  String _realRoomId = '';
   int _retry = 0;
 
   /// 连续 auth 被拒次数：用于把退避拉长，避免快速重连被上游限流。
@@ -72,13 +75,15 @@ class BilibiliDanmakuClient implements DanmakuClient {
   Stream<bool> get connected => _connected.stream;
 
   @override
-  Future<void> start(String roomId) async {
+  Future<void> start(String roomId, {String? realRoomId}) async {
     if (roomId.isEmpty) return;
     await stop();
     _stopped = false;
     _roomId = roomId;
+    _realRoomId = (realRoomId ?? '').trim();
     _retry = 0;
-    await _connect();
+    // 不 await：让播放页先出画面，弹幕在后台连上就出现
+    unawaited(_connect());
   }
 
   @override
@@ -116,8 +121,15 @@ class BilibiliDanmakuClient implements DanmakuClient {
 
     try {
       // 1. 拿真实房间号 + 弹幕服务器信息
-      final room = await _client.fetchRoomInfo(_roomId);
-      final serverInfo = await _client.fetchDanmuInfo(room.roomId);
+      //
+      // 播放页取流时已经知道真实房间号，直接用；只有没传时才回退到再查一次。
+      // 之前每次都重新 fetchRoomInfo，等于串行多花一个往返，首帧弹幕明显变慢。
+      var realRoomId = _realRoomId;
+      if (realRoomId.isEmpty) {
+        final room = await _client.fetchRoomInfo(_roomId);
+        realRoomId = room.roomId;
+      }
+      final serverInfo = await _client.fetchDanmuInfo(realRoomId);
       if (serverInfo.token.isEmpty || serverInfo.hosts.isEmpty) {
         throw const _DanmakuConnectError('没有可用的弹幕服务器');
       }
@@ -128,7 +140,7 @@ class BilibiliDanmakuClient implements DanmakuClient {
       for (final host in serverInfo.hosts) {
         if (_stopped) return;
         try {
-          await _openSocket(host, room.roomId, serverInfo.token);
+          await _openSocket(host, realRoomId, serverInfo.token);
           // 连上就先算成功，剩余错误交给 readLoop 之后的退避
           _retry = 0;
           return;

@@ -59,7 +59,11 @@ abstract class DanmakuClient {
   Stream<bool> get connected;
 
   /// 开始监听某房间。重复调用会先停掉上一个连接。
-  Future<void> start(String roomId);
+  /// 启动弹幕。
+  ///
+  /// [realRoomId] 是播放页已经取到的**真实房间号**（B 站的短号需要换真实号）。
+  /// 传了就能省掉一次 room get_info 请求 —— 这是首帧弹幕慢的主要来源。
+  Future<void> start(String roomId, {String? realRoomId});
 
   /// 停止监听并关闭连接。
   Future<void> stop();

@@ -55,7 +55,7 @@ class DouyuDanmakuClient implements DanmakuClient {
   Stream<bool> get connected => _connected.stream;
 
   @override
-  Future<void> start(String roomId) async {
+  Future<void> start(String roomId, {String? realRoomId}) async {
     if (roomId.isEmpty) return;
     await stop();
     _stopped = false;

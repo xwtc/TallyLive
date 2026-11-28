@@ -41,8 +41,10 @@ class DouyinClient extends PlatformClient {
   static const String _authority = 'live.douyin.com';
   static const String _referer = 'https://live.douyin.com/';
 
+  // 注意路径是 web/partition（不是 room/partition）：
+  // 写成 /webcast/room/partition/... 会 404（实测）。
   static const String _urlPartition =
-      'https://live.douyin.com/webcast/room/partition/detail/room/v2/';
+      'https://live.douyin.com/webcast/web/partition/detail/room/v2/';
   static const String _urlReflow =
       'https://webcast.amemv.com/webcast/room/reflow/info/';
 
@@ -180,7 +182,7 @@ class DouyinClient extends PlatformClient {
         title: _asString(room['title']),
         cover: _firstUrl(room['cover']),
         avatar: _firstUrl(owner['avatar_thumb']),
-        viewers: _asInt(stats['total_user_str']).clamp(0, 1 << 40),
+        viewers: _parseViewerText(_asString(stats['total_user_str'])),
         isLive: true,
       ));
     }
@@ -203,7 +205,7 @@ class DouyinClient extends PlatformClient {
       nickname: _asString(owner['nickname']),
       avatar: _firstUrl(owner['avatar_thumb']),
       cover: _firstUrl(room['cover']),
-      online: _asInt(_asMap(room['stats'])['total_user_str']),
+      online: _parseViewerText(_asString(_asMap(room['stats'])['total_user_str'])),
       isLive: _asInt(room['status']) == 2,
     );
   }
@@ -219,7 +221,7 @@ class DouyinClient extends PlatformClient {
       nickname: _asString(_asMap(room['owner'])['nickname']),
       avatar: _firstUrl(_asMap(room['owner'])['avatar_thumb']),
       cover: _firstUrl(room['cover']),
-      online: _asInt(_asMap(room['stats'])['total_user_str']),
+      online: _parseViewerText(_asString(_asMap(room['stats'])['total_user_str'])),
       isLive: _asInt(room['status']) == 2,
     );
     if (!info.isLive) return StreamInfoResult(room: info, variants: const []);
@@ -430,6 +432,17 @@ class DouyinClient extends PlatformClient {
     if (value == null) return '';
     if (value is String) return value;
     return value.toString();
+  }
+
+  /// 抖音人气是「10万+」「1.2万」这类文案，转成数字用于排序/展示。
+  static int _parseViewerText(String raw) {
+    final text = raw.trim();
+    if (text.isEmpty) return 0;
+    final number = double.tryParse(RegExp(r'[\d.]+').firstMatch(text)?.group(0) ?? '');
+    if (number == null) return 0;
+    if (text.contains('亿')) return (number * 100000000).round();
+    if (text.contains('万')) return (number * 10000).round();
+    return number.round();
   }
 
   static int _asInt(Object? value) {

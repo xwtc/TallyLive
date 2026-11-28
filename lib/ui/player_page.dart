@@ -189,7 +189,8 @@ class _PlayerPageState extends State<PlayerPage> {
       setState(() => _danmakuOnline = online);
     });
     try {
-      await client.start(widget.room.roomId);
+      // 播放页已有真实房间号，传给弹幕客户端省掉一次房间查询（首帧更快）
+      await client.start(widget.room.roomId, realRoomId: widget.room.roomId);
     } catch (_) {
       // 弹幕失败不影响看画面，静默降级
     }
