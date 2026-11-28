@@ -237,10 +237,11 @@ class _PlayerPageState extends State<PlayerPage> {
               ),
             ),
           Expanded(
-            // 长按标题栏切换弹幕调试面板（仅非 release 构建有效）
+            // 右键标题栏切换弹幕调试面板（仅非 release 构建有效）。
+            // 用右键而不是长按：桌面端鼠标右键更顺手，也不会和触摸长按冲突。
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onLongPress: kDiagnosticsEnabled
+              onSecondaryTap: kDiagnosticsEnabled
                   ? () => setState(() => _showStats = !_showStats)
                   : null,
               child: Text(

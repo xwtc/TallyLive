@@ -3,6 +3,7 @@ import 'package:tallylive/core/models.dart';
 import 'package:tallylive/core/settings.dart';
 import 'package:tallylive/platforms/bilibili/bilibili_client.dart';
 import 'package:tallylive/platforms/douyu/douyu_client.dart';
+import 'package:tallylive/platforms/huya/huya_client.dart';
 import 'package:tallylive/platforms/platform_client.dart';
 import 'package:tallylive/ui/player_page.dart';
 import 'package:tallylive/ui/theme.dart';
@@ -24,6 +25,7 @@ class _HomePageState extends State<HomePage> {
   final Map<LivePlatform, PlatformClient> _clients = {
     LivePlatform.bilibili: BilibiliClient(),
     LivePlatform.douyu: DouyuClient(),
+    LivePlatform.huya: HuyaClient(),
   };
 
   LivePlatform _platform = LivePlatform.bilibili;

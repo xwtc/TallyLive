@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
@@ -130,6 +131,39 @@ class LiveHttp {
         throw HttpStatusException(url, status, text);
       }
       return text;
+    } catch (error) {
+      if (error is HttpStatusException) rethrow;
+      throw HttpRequestException(url, error);
+    }
+  }
+
+  /// 发二进制 POST（虎牙 WUP 网关用），返回原始响应字节。
+  Future<Uint8List> postBytes(
+    String url,
+    List<int> body, {
+    Map<String, String>? headers,
+  }) async {
+    try {
+      final response = await _dio.post<List<int>>(
+        url,
+        data: Stream.fromIterable([body]),
+        options: Options(
+          responseType: ResponseType.bytes,
+          contentType: 'application/octet-stream',
+          headers: {
+            'User-Agent': defaultUA,
+            'Accept': '*/*',
+            if (headers != null) ...headers,
+          },
+        ),
+      );
+      final status = response.statusCode ?? 0;
+      final data = response.data;
+      if (status < 200 || status >= 300) {
+        throw HttpStatusException(url, status, data == null ? '' : '(${data.length} bytes)');
+      }
+      if (data == null) return Uint8List(0);
+      return Uint8List.fromList(data);
     } catch (error) {
       if (error is HttpStatusException) rethrow;
       throw HttpRequestException(url, error);

@@ -5,6 +5,8 @@
 > 从 Wails 版 [DTV](https://github.com/chen-zeong/DTV) 重建。原项目是 WebView + xgplayer，
 > 在 iOS 上播不了 HTTP-FLV（WKWebView 无 MSE），且 WebView 无法把原生视频合成进 UI
 > （弹幕会被原生窗口遮住），所以改用 Flutter + media_kit（libmpv），视频与弹幕走同一个合成器。
+>
+> **本项目的实现一律以 DTV 的 Go 源码为移植来源**，未搬用其他项目的代码。
 
 ## 技术栈
 
