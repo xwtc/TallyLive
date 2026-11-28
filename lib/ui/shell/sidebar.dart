@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:tallylive/core/feed_ui.dart';
 import 'package:tallylive/core/follows.dart';
 import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/ui/components/atoms.dart';
+import 'package:tallylive/ui/components/login_sheet.dart';
 import 'package:tallylive/ui/theme.dart';
 
 /// 左侧关注栏。
@@ -72,6 +74,21 @@ class _SidebarState extends State<Sidebar> {
     );
   }
 
+  /// 打开登录弹层。
+  Future<void> _openLogin() async {
+    final platform = FeedUi.instance.platform ??
+        sharedRepository.supportedPlatforms.first;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: TallyColors.raised,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      builder: (_) => LoginSheet(platform: platform),
+    );
+  }
+
   /// 关注栏内搜索框（窄、矮，和侧栏宽度匹配）。
   Widget _buildSearch() {
     return Padding(
@@ -118,6 +135,15 @@ class _SidebarState extends State<Sidebar> {
             )),
           ],
           const Spacer(),
+          // 账号登录入口（Cookie 登录，见 UI-DESIGN §4.4.1）
+          if (!_collapsed)
+            IconButton(
+              tooltip: '账号登录',
+              iconSize: 15,
+              onPressed: _openLogin,
+              icon: const Icon(Icons.person_outline,
+                  color: TallyColors.textTertiary),
+            ),
           IconButton(
             tooltip: _collapsed ? '展开关注栏' : '收起关注栏',
             iconSize: 16,

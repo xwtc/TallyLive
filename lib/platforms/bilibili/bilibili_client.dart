@@ -38,6 +38,8 @@ class BilibiliClient extends PlatformClient {
   static const String _urlDanmuInfo =
       'https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo';
   static const String _urlWbiNav = 'https://api.bilibili.com/x/web-interface/nav';
+  static const String _urlSearchType =
+      'https://api.bilibili.com/x/web-interface/search/type';
   static const String _urlMasterInfo =
       'https://api.live.bilibili.com/live_user/v1/Master/info';
   static const String _urlAreaList =
@@ -58,6 +60,9 @@ class BilibiliClient extends PlatformClient {
   ];
 
   String _wWebId = '';
+
+  /// buvid3（搜索接口的 Cookie 用）。
+  String _buvid = '';
   DateTime _wWebIdAt = DateTime.fromMillisecondsSinceEpoch(0);
   static const Duration _wWebIdTTL = Duration(minutes: 30);
 
@@ -79,6 +84,84 @@ class BilibiliClient extends PlatformClient {
   /// 拉取房间基本信息。
   ///
   /// roomId 支持短号：接口会返回真正的 room_id（后续取流必须用这个）。
+  /* --------------------------------------------------------------- 搜索 */
+
+  /// 搜索直播间。
+  ///
+  /// 参数与 DTV 一致（那些空值参数不是摆设，少了会掉到「无结果」分支）；
+  /// 结果里的 title/uname 带 `<em class="keyword">` 高亮标签，要清掉。
+  @override
+  Future<List<SearchHit>> search(String keyword) async {
+    final text = keyword.trim();
+    if (text.isEmpty) return const [];
+
+    final buvid = await _fetchBuvid();
+    final params = <List<String>>[
+      ['context', ''],
+      ['search_type', 'live'],
+      ['cover_type', 'user_cover'],
+      ['order', ''],
+      ['keyword', text],
+      ['category_id', ''],
+      ['__refresh__', ''],
+      ['_extra', ''],
+      ['highlight', '0'],
+      ['single_column', '0'],
+      ['page', '1'],
+    ];
+    final query =
+        params.map((kv) => '${kv[0]}=${Uri.encodeQueryComponent(kv[1])}').join('&');
+
+    final json = await _http.getJson(
+      '$_urlSearchType?$query',
+      headers: {
+        ..._headers,
+        'Cookie': 'buvid3=${buvid.isEmpty ? 'i' : buvid};',
+      },
+    );
+    final map = _asMap(json);
+    final code = _asInt(map['code']);
+    if (code != 0) {
+      throw BilibiliApiException('search/type', code, _asString(map['message']));
+    }
+
+    final result = _asMap(_asMap(map['data'])['result']);
+    var raw = _asList(result['live_room']);
+    if (raw.isEmpty) raw = _asList(result['live_user']);
+
+    final hits = <SearchHit>[];
+    for (final item in raw) {
+      final entry = _asMap(item);
+      final roomId = _asString(entry['roomid']);
+      if (roomId.isEmpty || roomId == '0') continue;
+      hits.add(SearchHit(
+        platform: platform,
+        id: roomId,
+        nickname: _stripEmTags(_asString(entry['uname'])).trim(),
+        title: _stripEmTags(_asString(entry['title'])).trim(),
+        avatar: _httpsUrl(_asString(entry['uface'])),
+        isLive: _asInt(entry['live_status']) == 1,
+      ));
+    }
+    return hits;
+  }
+
+  /// 取 buvid3（搜索接口的 Cookie 要用）。
+  Future<String> _fetchBuvid() async {
+    if (_buvid.isNotEmpty) return _buvid;
+    try {
+      final json = await _http.getJson(
+        'https://api.bilibili.com/x/frontend/finger/spi',
+        headers: _headers,
+      );
+      final value = _asString(_asMap(_asMap(json)['data'])['b_3']);
+      if (value.isNotEmpty) _buvid = value;
+    } catch (_) {
+      // 取不到用 'i' 占位
+    }
+    return _buvid;
+  }
+
   @override
   Future<RoomInfo> fetchRoomInfo(String roomId) async {
     final json = await _http.getJson(

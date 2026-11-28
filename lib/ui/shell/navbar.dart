@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:tallylive/core/feed_ui.dart';
 import 'package:tallylive/core/models.dart';
+import 'package:tallylive/ui/search_page.dart';
 import 'package:tallylive/ui/theme.dart';
 
 /// 顶栏（对齐 DTV 的 Navbar 结构）。
@@ -137,8 +138,8 @@ class _SearchBox extends StatelessWidget {
         cursor: SystemMouseCursors.text,
         child: GestureDetector(
           onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('搜索页待接入')),
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const SearchPage()),
             );
           },
           child: Container(

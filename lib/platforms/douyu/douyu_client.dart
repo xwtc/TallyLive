@@ -40,6 +40,8 @@ class DouyuClient extends PlatformClient {
 
   static const String _urlBetard = 'https://www.douyu.com/betard/';
   static const String _urlCateList = 'https://m.douyu.com/api/cate/list';
+  static const String _urlSearchUser =
+      'https://www.douyu.com/japi/search/api/searchUser';
   static const String _urlGetEncryption =
       'https://www.douyu.com/wgapi/livenc/liveweb/websec/getEncryption';
   static const String _urlGetH5Play =
@@ -82,6 +84,75 @@ class DouyuClient extends PlatformClient {
       };
 
   /* ------------------------------ 房间信息 ------------------------------ */
+
+  /* --------------------------------------------------------------- 搜索 */
+
+  /// 搜索主播。
+  ///
+  /// 对齐 DTV `SearchAnchor`：`filterType=0`；结果里只有 `type==1` 是主播用户
+  /// （其余是分类/视频等混合结果）。房间号优先取 `rid`，缺失时从 `bkUrl` 末段取。
+  @override
+  Future<List<SearchHit>> search(String keyword) async {
+    final text = keyword.trim();
+    if (text.isEmpty) return const [];
+
+    final did = _makeSearchDid();
+    final target = '$_urlSearchUser?kw=${Uri.encodeQueryComponent(text)}'
+        '&page=1&pageSize=20&filterType=0';
+
+    final json = await _http.getJson(target, headers: {
+      'User-Agent': _desktopUA,
+      'Referer': 'https://www.douyu.com/search/',
+      'Cookie': 'dy_did=$did; acf_did=$did',
+    });
+    final map = _asMap(json);
+    final data = _asMap(map['data']);
+    var items = _asList(data['relateUser']);
+    if (items.isEmpty) items = _asList(data['relateUserList']);
+
+    final hits = <SearchHit>[];
+    for (final raw in items) {
+      final entry = _asMap(raw);
+      // type != 1 是分类/视频等混合结果，跳过
+      if (entry['type'] != null && _asInt(entry['type']) != 1) continue;
+      final info = _asMap(entry['anchorInfo']);
+      if (info.isEmpty) continue;
+
+      var roomId = _asString(info['rid']);
+      if (roomId.isEmpty) {
+        final bkUrl = _asString(info['bkUrl']);
+        final slash = bkUrl.lastIndexOf('/');
+        if (slash >= 0) roomId = bkUrl.substring(slash + 1);
+      }
+      final nickname = _firstNonEmpty([
+        _asString(info['nickName']),
+        _asString(info['nickname']),
+      ]);
+      if (roomId.isEmpty || nickname.isEmpty) continue;
+
+      hits.add(SearchHit(
+        platform: platform,
+        id: roomId,
+        nickname: nickname,
+        title: _firstNonEmpty([
+          _asString(info['roomName']),
+          _asString(info['room_name']),
+        ]),
+        avatar: _douyuAvatarUrl(
+            _firstNonEmpty([_asString(info['avatar']), _asString(info['av'])])),
+        isLive: _asInt(info['isLive']) == 1 || _asInt(info['live_status']) == 1,
+      ));
+    }
+    return hits;
+  }
+
+  /// 搜索接口要一个 did（设备 id），随机生成即可。
+  String _makeSearchDid() {
+    final random = Random();
+    const chars = '0123456789abcdef';
+    return List<String>.generate(
+        32, (_) => chars[random.nextInt(chars.length)]).join();
+  }
 
   @override
   Future<RoomInfo> fetchRoomInfo(String roomId) async {

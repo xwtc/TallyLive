@@ -45,6 +45,8 @@ class HuyaClient extends PlatformClient {
   static const String _urlWup = 'http://wup.huya.com';
 
   /// 直播列表（iGid = 二级分区 id）。
+  /// 搜索（typ=-5 只看主播）
+  static const String _urlSearch = 'https://search.cdn.huya.com/';
   static const String _urlLiveList =
       'https://live.huya.com/liveHttpUI/getLiveList?iGid=%s&iPageNo=%d&iPageSize=%d';
 
@@ -248,6 +250,76 @@ class HuyaClient extends PlatformClient {
   }
 
   /// 按二级分区拉直播列表；categoryId 为空时用第一个分区兜底。
+  /* --------------------------------------------------------------- 搜索 */
+
+  /// 搜索主播。
+  ///
+  /// 对齐 DTV `SearchAnchor`：
+  ///   - `typ=-5` 表示只看主播（其余类型是分类/视频）
+  ///   - 结果在 `response["1"]` 里；键名变了就退回"扫描所有结果集"
+  ///   - 同一主播可能在多个结果集出现，按房间号去重
+  ///
+  /// 字段：room_id / game_nick / live_intro / game_avatarUrl180 / gameLiveOn
+  @override
+  Future<List<SearchHit>> search(String keyword) async {
+    final text = keyword.trim();
+    if (text.isEmpty) return const [];
+
+    final query = <String, String>{
+      'm': 'Search',
+      'do': 'getSearchContent',
+      'q': text,
+      'uid': '0',
+      'v': '1',
+      'typ': '-5',
+      'livestate': '0',
+      'rows': '20',
+      'start': '0',
+    };
+    final qs = query.entries
+        .map((e) =>
+            '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
+
+    final json = await _http.getJson('$_urlSearch?$qs', headers: {
+      'User-Agent': _firefoxUA,
+      'Referer': 'https://www.huya.com/search/',
+      'Origin': 'https://www.huya.com',
+      'Accept': '*/*',
+    });
+
+    final response = _asMap(_asMap(json)['response']);
+    final sets = <Map<String, dynamic>>[];
+    if (response['1'] is Map) {
+      sets.add(_asMap(response['1']));
+    } else {
+      for (final value in response.values) {
+        if (value is Map) sets.add(_asMap(value));
+      }
+    }
+
+    final hits = <SearchHit>[];
+    final seen = <String>{};
+    for (final set in sets) {
+      for (final raw in _asList(set['docs'])) {
+        final doc = _asMap(raw);
+        final roomId = _asString(doc['room_id']);
+        if (roomId.isEmpty || !seen.add(roomId)) continue;
+        var nickname = _asString(doc['game_nick']);
+        if (nickname.isEmpty) nickname = '房间 $roomId';
+        hits.add(SearchHit(
+          platform: platform,
+          id: roomId,
+          nickname: nickname,
+          title: _asString(doc['live_intro']),
+          avatar: _enforceHttps(_asString(doc['game_avatarUrl180'])),
+          isLive: doc['gameLiveOn'] == true,
+        ));
+      }
+    }
+    return hits;
+  }
+
   @override
   Future<StreamerPage> fetchLiveList({
     String? categoryId,

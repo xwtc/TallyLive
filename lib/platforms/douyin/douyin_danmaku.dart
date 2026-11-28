@@ -329,6 +329,10 @@ class DouyinDanmakuClient implements DanmakuClient {
 
     if (method == 'WebcastChatMessage') {
       _handleChat(payload);
+    } else if (method == 'WebcastGiftMessage') {
+      _handleGift(payload);
+    } else if (method == 'WebcastMemberMessage') {
+      _handleMember(payload);
     }
   }
 
@@ -368,6 +372,80 @@ class DouyinDanmakuClient implements DanmakuClient {
       kind: DanmakuKind.chat,
     ));
     DanmakuStats.instance.countChat();
+  }
+
+  /// GiftMessage{ user@7, gift@15, repeatCount@5 }
+  ///
+  /// 只取昵称 + 礼物名，做成 system 类型弹幕（弱化样式），不进聊天区抢视线。
+  /// 字段号对照 douyin.proto；取不到就静默跳过，不影响聊天弹幕。
+  void _handleGift(Uint8List data) {
+    var nickname = '';
+    var giftName = '';
+    final reader = ProtoReader(data);
+    reader.forEachField((field, wire) {
+      switch (field) {
+        case 7: // user
+          nickname = _readNickName(reader.readBytes());
+          return true;
+        case 15: // gift
+          final giftBytes = reader.readBytes();
+          final gift = ProtoReader(giftBytes);
+          gift.forEachField((f, w) {
+            // GiftStruct.name@16
+            if (f == 16) {
+              giftName = gift.readString();
+              return true;
+            }
+            return false;
+          });
+          return true;
+        default:
+          return false;
+      }
+    });
+    if (giftName.isEmpty) return;
+    _emit(DanmakuMessage(
+      id: '${_roomId}_${DateTime.now().microsecondsSinceEpoch}_${_sequence++}',
+      content: nickname.isEmpty ? '送出 $giftName' : '$nickname 送出 $giftName',
+      at: DateTime.now().millisecondsSinceEpoch,
+      nickname: '',
+      kind: DanmakuKind.gift,
+    ));
+  }
+
+  /// MemberMessage{ user@2 }：进场提示，弱化显示。
+  void _handleMember(Uint8List data) {
+    var nickname = '';
+    final reader = ProtoReader(data);
+    reader.forEachField((field, wire) {
+      if (field == 2) {
+        nickname = _readNickName(reader.readBytes());
+        return true;
+      }
+      return false;
+    });
+    if (nickname.isEmpty) return;
+    _emit(DanmakuMessage(
+      id: '${_roomId}_${DateTime.now().microsecondsSinceEpoch}_${_sequence++}',
+      content: '$nickname 来了',
+      at: DateTime.now().millisecondsSinceEpoch,
+      nickname: '',
+      kind: DanmakuKind.enter,
+    ));
+  }
+
+  /// User{ nickName@3 }
+  String _readNickName(Uint8List data) {
+    var nickname = '';
+    final user = ProtoReader(data);
+    user.forEachField((f, w) {
+      if (f == 3) {
+        nickname = user.readString();
+        return true;
+      }
+      return false;
+    });
+    return nickname;
   }
 
   void _resetWatchdog() {
