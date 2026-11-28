@@ -879,11 +879,6 @@ class _PlayerPageState extends State<PlayerPage> {
       },
     );
   }
-
-  String _formatCount(int value) {
-    if (value >= 10000) {
-      return '${(value / 10000).toStringAsFixed(1)}万';
-    }
     return value.toString();
   }
 }
