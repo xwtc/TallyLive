@@ -6,6 +6,8 @@ import 'package:tallylive/core/feed_ui.dart';
 import 'package:tallylive/core/models.dart';
 import 'package:tallylive/ui/components/inline_search.dart';
 import 'package:tallylive/ui/components/sync_sheet.dart';
+import 'package:window_manager/window_manager.dart';
+
 import 'package:tallylive/ui/shell/window_controls.dart';
 import 'package:tallylive/ui/theme.dart';
 
