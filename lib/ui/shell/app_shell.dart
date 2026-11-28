@@ -3,6 +3,7 @@ import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/ui/live_page.dart';
 import 'package:tallylive/ui/shell/navbar.dart';
 import 'package:tallylive/ui/shell/player_layer.dart';
+import 'package:tallylive/ui/shell/search_panel_host.dart';
 import 'package:tallylive/ui/shell/sidebar.dart';
 import 'package:tallylive/ui/theme.dart';
 
@@ -68,6 +69,8 @@ class _AppShellState extends State<AppShell> {
                           children: [
                             const LivePage(),
                             const PlayerLayer(),
+                            // 搜索浮层最上层：压过播放层，点击优先命中
+                            const SearchPanelHost(),
                           ],
                         ),
                       ),
@@ -87,6 +90,7 @@ class _AppShellState extends State<AppShell> {
             children: const [
               LivePage(),
               PlayerLayer(),
+              SearchPanelHost(),
             ],
           ),
         );

@@ -6,17 +6,17 @@ import 'package:tallylive/core/feed_ui.dart';
 import 'package:tallylive/core/models.dart';
 import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/ui/components/atoms.dart';
+import 'package:tallylive/ui/shell/search_panel_host.dart';
 import 'package:tallylive/ui/theme.dart';
 
 /// 内联搜索框（对齐 DTV 的 `SearchBox`）。
 ///
-/// 行为（规格取自 DTV 的 SearchBox.module.css）：
-/// - 常态宽 **190px**，聚焦后展开到 **292px**（动画 280ms）
-/// - 输入 250ms 防抖，**自动联想**，结果以浮层出现在输入框下方（宽 384px）
-/// - 上下键切换选中项、回车确认、Esc 收起、点外部关闭
-/// - 结果点击直接进播放
+/// - 常态宽 **190px**，聚焦展开到 **292px**（280ms 过渡）
+/// - 输入 250ms 防抖，自动联想，浮层宽 384px 挂在输入框下方
+/// - 上下键切换、回车确认、Esc 收起、点外部关闭
 ///
-/// 之前做成独立页面（跳转），与 DTV 不一致，这里改回内联浮层。
+/// **浮层挂在 shell 的 Stack 里**（[SearchPanelController]），
+/// 不用 OverlayEntry —— 之前用根 Overlay 时浮层能显示但点击进不了直播间。
 class InlineSearch extends StatefulWidget {
   const InlineSearch({super.key});
 
@@ -27,6 +27,10 @@ class InlineSearch extends StatefulWidget {
 class _InlineSearchState extends State<InlineSearch> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focus = FocusNode();
+
+  /// 输入框和它的外壳：定位浮层用外壳，命中判定用输入框。
+  final GlobalKey _shellKey = GlobalKey();
+
   Timer? _debounce;
 
   bool _expanded = false;
@@ -36,15 +40,8 @@ class _InlineSearchState extends State<InlineSearch> {
   String _query = '';
   int _activeIndex = -1;
 
-  /// 浮层用 OverlayEntry 承载，避免被父级裁剪（之前 Stack 内 Positioned 会被列表盖住）。
-  OverlayEntry? _panelEntry;
-
-  /// 输入框左边缘的全局坐标（用于定位浮层）。
-  final GlobalKey _fieldKey = GlobalKey();
-
   static const double _widthIdle = 190;
   static const double _widthExpanded = 292;
-  static const double _panelWidth = 384;
 
   @override
   void initState() {
@@ -55,8 +52,8 @@ class _InlineSearchState extends State<InlineSearch> {
 
   @override
   void dispose() {
-    _unmountPanel();
     _debounce?.cancel();
+    SearchPanelController.instance.hide();
     _controller.removeListener(_onTextChanged);
     _controller.dispose();
     _focus.dispose();
@@ -68,66 +65,34 @@ class _InlineSearchState extends State<InlineSearch> {
     _syncPanel();
   }
 
-  /// 挂载/卸载浮层。
-  void _syncPanel() {
-    final shouldShow = _expanded && _controller.text.trim().isNotEmpty;
-    if (shouldShow && _panelEntry == null) {
-      _mountPanel();
-    } else if (!shouldShow && _panelEntry != null) {
-      _unmountPanel();
-    } else if (shouldShow) {
-      _panelEntry!.markNeedsBuild();
-    }
-  }
-
-  void _mountPanel() {
-    final overlay = Overlay.maybeOf(context);
-    if (overlay == null) return;
-    _panelEntry = OverlayEntry(builder: _buildOverlayPanel);
-    overlay.insert(_panelEntry!);
-  }
-
-  void _unmountPanel() {
-    _panelEntry?.remove();
-    _panelEntry = null;
-  }
-
-  Widget _buildOverlayPanel(BuildContext context) {
-    final box = _fieldKey.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null) return const SizedBox.shrink();
-    final origin = box.localToGlobal(Offset.zero);
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    final left = (origin.dx + box.size.width - _panelWidth)
-        .clamp(8.0, screenWidth - _panelWidth - 8);
-
-    return Stack(
-      children: [
-        // 点击外部关闭
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onTap: () {
-              _focus.unfocus();
-              _collapse();
-            },
-          ),
-        ),
-        Positioned(
-          left: left,
-          top: origin.dy + box.size.height + 4,
-          width: _panelWidth,
-          child: _buildPanel(),
-        ),
-      ],
-    );
-  }
-
   void _onTextChanged() {
     if (mounted) setState(() {});
+    _syncPanel();
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 250), () {
       _search(_controller.text);
     });
+  }
+
+  /// 挂载 / 卸载 / 刷新浮层。
+  void _syncPanel() {
+    final shouldShow = _focus.hasFocus && _controller.text.trim().isNotEmpty;
+    if (!shouldShow) {
+      SearchPanelController.instance.hide();
+      return;
+    }
+    final anchor = _anchorRect();
+    if (anchor == null) return;
+    SearchPanelController.instance.show(
+      anchor: anchor,
+      builder: (_) => _buildPanel(),
+    );
+  }
+
+  Rect? _anchorRect() {
+    final box = _shellKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
   }
 
   Future<void> _search(String raw) async {
@@ -141,8 +106,8 @@ class _InlineSearchState extends State<InlineSearch> {
       });
       return;
     }
-    final platform = FeedUi.instance.platform ??
-        sharedRepository.supportedPlatforms.first;
+    final platform =
+        FeedUi.instance.platform ?? sharedRepository.supportedPlatforms.first;
     setState(() {
       _loading = true;
       _error = null;
@@ -167,16 +132,19 @@ class _InlineSearchState extends State<InlineSearch> {
         _loading = false;
         _activeIndex = -1;
       });
+      _syncPanel();
     }
   }
 
   String _friendly(Object error) {
     final text = error.toString();
-    if (text.contains('2483')) {
-      return '抖音搜索被风控拦截（2483），可直接输房间号';
+    if (text.contains('2483') || text.contains('风控')) {
+      return '抖音搜索需要登录，暂不可用。可直接输入房间号进入。';
     }
-    if (text.contains('UnimplementedError')) return '该平台搜索尚未接入';
-    return text.length > 100 ? '${text.substring(0, 100)}…' : text;
+    if (text.contains('UnimplementedError')) return '该平台的搜索尚未接入';
+    // 去掉异常类名前缀，只留消息
+    final cleaned = text.replaceFirst(RegExp(r'^\w+Exception:\s*'), '');
+    return cleaned.length > 120 ? '${cleaned.substring(0, 120)}…' : cleaned;
   }
 
   void _open(SearchHit hit) {
@@ -191,13 +159,13 @@ class _InlineSearchState extends State<InlineSearch> {
   void _collapse() {
     _focus.unfocus();
     _controller.clear();
+    SearchPanelController.instance.hide();
     setState(() {
       _hits = const [];
       _query = '';
       _error = null;
       _activeIndex = -1;
     });
-    _syncPanel();
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
@@ -232,97 +200,99 @@ class _InlineSearchState extends State<InlineSearch> {
 
   @override
   Widget build(BuildContext context) {
-
     return SizedBox(
       width: _widthExpanded,
       height: 36,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Align(
-            alignment: Alignment.centerRight,
-            child: AnimatedContainer(
-              key: _fieldKey,
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeOut,
-              width: _expanded ? _widthExpanded : _widthIdle,
-              height: 36,
-              padding: const EdgeInsets.only(left: 12, right: 4),
-              decoration: BoxDecoration(
-                color: TallyColors.inset,
-                borderRadius: BorderRadius.circular(TallyRadius.pill),
-                border: Border.all(
-                  color: _expanded
-                      ? TallyColors.signalBlue.withValues(alpha: 0.6)
-                      : Colors.transparent,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Focus(
-                      onKeyEvent: _onKey,
-                      child: TextField(
-                        controller: _controller,
-                        focusNode: _focus,
-                        cursorColor: TallyColors.signalBlue,
-                        style: TallyType.subtitle
-                            .copyWith(color: TallyColors.textPrimary),
-                        decoration: InputDecoration(
-                          isDense: true,
-                          border: InputBorder.none,
-                          hintText: '搜索关键词或直播间号',
-                          hintStyle: TallyType.subtitle
-                              .copyWith(color: TallyColors.textTertiary),
-                        ),
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: AnimatedContainer(
+          key: _shellKey,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOut,
+          width: _expanded ? _widthExpanded : _widthIdle,
+          height: 36,
+          padding: const EdgeInsets.only(left: 12, right: 4),
+          decoration: BoxDecoration(
+            color: TallyColors.inset,
+            borderRadius: BorderRadius.circular(TallyRadius.pill),
+            border: Border.all(
+              color: _expanded
+                  ? TallyColors.signalBlue.withValues(alpha: 0.55)
+                  : Colors.transparent,
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Focus(
+                  onKeyEvent: _onKey,
+                  child: TextField(
+                    controller: _controller,
+                    focusNode: _focus,
+                    cursorColor: TallyColors.signalBlue,
+                    style: TallyType.subtitle.copyWith(
+                      color: TallyColors.textPrimary,
+                      decoration: TextDecoration.none,
+                    ),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      border: InputBorder.none,
+                      hintText: '搜索关键词或房间号',
+                      hintStyle: TallyType.subtitle.copyWith(
+                        color: TallyColors.textTertiary,
                       ),
                     ),
                   ),
-                  if (_controller.text.isNotEmpty)
-                    _MiniIcon(
-                      icon: Icons.close,
-                      tooltip: '清空',
-                      onTap: _collapse,
-                    ),
-                  _MiniIcon(
-                    icon: Icons.search,
-                    tooltip: '搜索',
-                    onTap: () => _search(_controller.text),
-                  ),
-                ],
+                ),
               ),
-            ),
+              if (_controller.text.isNotEmpty)
+                _MiniIcon(
+                  icon: Icons.close,
+                  tooltip: '清空',
+                  onTap: _collapse,
+                ),
+              _MiniIcon(
+                icon: Icons.search,
+                tooltip: '搜索',
+                onTap: () => _search(_controller.text),
+              ),
+            ],
           ),
-
-        ],
+        ),
       ),
     );
   }
 
+  /* ------------------------------------------------------------------ 浮层 */
+
   Widget _buildPanel() {
-    return Container(
-      constraints: const BoxConstraints(maxHeight: 420),
-      decoration: BoxDecoration(
-        color: TallyColors.raised,
-        borderRadius: BorderRadius.circular(TallyRadius.card),
-        border: Border.all(color: TallyColors.hairline),
-      ),
+    return SearchPanelSurface(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(
-                TallySpace.md, TallySpace.sm, TallySpace.md, TallySpace.xs),
+                TallySpace.md, 10, TallySpace.sm, 8),
             child: Row(
               children: [
-                Text('搜索结果', style: TallyType.meta),
+                Text(
+                  '搜索结果',
+                  style: TallyType.meta.copyWith(
+                    fontWeight: FontWeight.w600,
+                    decoration: TextDecoration.none,
+                  ),
+                ),
                 const Spacer(),
                 if (!_loading && _error == null)
-                  Text('${_hits.length} 条', style: TallyType.meta),
+                  Text(
+                    '${_hits.length} 条',
+                    style: TallyType.tiny.copyWith(
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
               ],
             ),
           ),
-          const Divider(height: 1),
           Flexible(child: _buildPanelBody()),
         ],
       ),
@@ -332,7 +302,7 @@ class _InlineSearchState extends State<InlineSearch> {
   Widget _buildPanelBody() {
     if (_loading) {
       return const Padding(
-        padding: EdgeInsets.all(TallySpace.lg),
+        padding: EdgeInsets.symmetric(vertical: 28),
         child: Center(
           child: SizedBox(
             width: 16,
@@ -347,44 +317,65 @@ class _InlineSearchState extends State<InlineSearch> {
     }
     if (_error != null) {
       return Padding(
-        padding: const EdgeInsets.all(TallySpace.md),
-        child: Text(_error!, style: TallyType.meta),
+        padding: const EdgeInsets.fromLTRB(
+            TallySpace.md, 4, TallySpace.md, TallySpace.md),
+        child: Text(
+          _error!,
+          style: TallyType.meta.copyWith(
+            height: 1.4,
+            decoration: TextDecoration.none,
+          ),
+        ),
       );
     }
     if (_hits.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.all(TallySpace.md),
-        child: Text('没找到「$_query」', style: TallyType.meta),
+        padding: const EdgeInsets.fromLTRB(
+            TallySpace.md, 4, TallySpace.md, TallySpace.md),
+        child: Text(
+          '没找到「$_query」\n试试更短的关键词，或直接输入房间号',
+          style: TallyType.meta.copyWith(
+            height: 1.4,
+            decoration: TextDecoration.none,
+          ),
+        ),
       );
     }
     return ListView.builder(
       shrinkWrap: true,
-      padding: const EdgeInsets.symmetric(vertical: TallySpace.xs),
+      padding: const EdgeInsets.only(bottom: 4),
       itemCount: _hits.length,
       itemBuilder: (context, index) {
         final hit = _hits[index];
-        final active = index == _activeIndex;
         return _HitRow(
           hit: hit,
-          active: active,
+          active: index == _activeIndex,
           onTap: () => _open(hit),
+          onHover: () => setState(() => _activeIndex = index),
         );
       },
     );
   }
 }
 
-/// 搜索结果的一行（紧凑，36px）。
+/// 搜索结果的一行。
+///
+/// 样式要点（之前的问题：文字带下划线、行太挤）：
+/// - 所有文字显式 `decoration: TextDecoration.none`
+/// - 昵称 13/w600 主色，标题 11.5 三级色，行高分开
+/// - 行高 48，hover 时才上底色，左侧不加分隔线
 class _HitRow extends StatefulWidget {
   const _HitRow({
     required this.hit,
     required this.active,
     required this.onTap,
+    required this.onHover,
   });
 
   final SearchHit hit;
   final bool active;
   final VoidCallback onTap;
+  final VoidCallback onHover;
 
   @override
   State<_HitRow> createState() => _HitRowState();
@@ -393,21 +384,39 @@ class _HitRow extends StatefulWidget {
 class _HitRowState extends State<_HitRow> {
   bool _hovered = false;
 
+  /// 把可能的 HTML 残留清掉（B站 title 里带 `<em class="keyword">`）。
+  static String _clean(String raw) {
+    if (!raw.contains('<')) return raw;
+    return raw.replaceAll(RegExp(r'<[^>]*>'), '');
+  }
+
   @override
   Widget build(BuildContext context) {
     final hit = widget.hit;
+    final nickname = _clean(hit.nickname);
+    final title = _clean(hit.title);
+    final highlighted = widget.active || _hovered;
+
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
+      onEnter: (_) {
+        setState(() => _hovered = true);
+        widget.onHover();
+      },
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
         child: Container(
-          height: 44,
-          padding: const EdgeInsets.symmetric(horizontal: TallySpace.sm),
-          color: widget.active || _hovered
-              ? TallyColors.raised
-              : Colors.transparent,
+          height: 48,
+          margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: highlighted
+                ? TallyColors.inset
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
           child: Row(
             children: [
               Stack(
@@ -415,52 +424,80 @@ class _HitRowState extends State<_HitRow> {
                 children: [
                   AvatarBox(
                     url: hit.avatar,
-                    fallbackText: hit.nickname,
-                    size: 28,
+                    fallbackText: nickname,
+                    size: 30,
                   ),
                   Positioned(
                     right: -1,
                     bottom: -1,
                     child: Container(
-                      width: 10,
-                      height: 10,
+                      width: 11,
+                      height: 11,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: hit.isLive
                             ? const Color(0xFF10B981)
                             : const Color(0xFF475569),
                         border: Border.all(
-                            color: TallyColors.raised, width: 1.6),
+                            color: TallyColors.raised, width: 1.8),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(width: TallySpace.sm),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      hit.nickname,
+                      nickname.isEmpty ? hit.id : nickname,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 13,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: FontWeight.w600,
+                        height: 1.25,
                         color: TallyColors.textPrimary,
+                        decoration: TextDecoration.none,
                       ),
                     ),
+                    const SizedBox(height: 2),
                     Text(
-                      hit.title.isEmpty ? '暂无标题' : hit.title,
+                      title.isEmpty ? '暂无标题' : title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TallyType.tiny,
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        height: 1.25,
+                        color: TallyColors.textTertiary,
+                        decoration: TextDecoration.none,
+                      ),
                     ),
                   ],
                 ),
               ),
+              if (hit.isLive)
+                Container(
+                  margin: const EdgeInsets.only(left: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: TallyColors.tallyRed.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(TallyRadius.pill),
+                  ),
+                  child: Text(
+                    '直播中',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: TallyColors.tallyRed,
+                      height: 1.2,
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

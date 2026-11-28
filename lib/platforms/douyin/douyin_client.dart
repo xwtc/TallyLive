@@ -199,6 +199,64 @@ class DouyinClient extends PlatformClient {
 
   /* ------------------------------------------------------------- 房间信息 */
 
+  /* --------------------------------------------------------------- 搜索 */
+
+  /// 抖音**只支持用房间号直接进入**（不做关键词搜索）。
+  ///
+  /// 原因：`aweme/v1/web/live/search` 实测返回 **2483 风控**（未登录态），
+  /// 关键词搜索拿不到数据。与其给一个"永远失败"的搜索，
+  /// 不如明确只接受房间号：
+  /// - 纯数字（web_rid，如 123456789）→ 直接查房间信息返回一条结果
+  /// - 完整链接 `https://live.douyin.com/123456789` → 从链接里取数字
+  /// - 其它关键词 → 抛异常，界面提示"抖音只支持房间号"
+  @override
+  Future<List<SearchHit>> search(String keyword) async {
+    final raw = keyword.trim();
+    if (raw.isEmpty) return const [];
+
+    final roomId = _extractRoomId(raw);
+    if (roomId == null) {
+      throw const DouyinException(
+        '抖音只支持用房间号进入。\n'
+        '请输入纯数字房间号，或粘贴直播间链接。',
+      );
+    }
+
+    // 用房间信息补齐昵称/标题/头像，查不到也返回一条可用结果
+    try {
+      final info = await fetchRoomInfo(roomId);
+      return [
+        SearchHit(
+          platform: platform,
+          id: roomId,
+          nickname: info.nickname.isEmpty ? '房间 $roomId' : info.nickname,
+          title: info.title,
+          avatar: info.avatar,
+          isLive: info.isLive,
+        ),
+      ];
+    } catch (_) {
+      return [
+        SearchHit(
+          platform: platform,
+          id: roomId,
+          nickname: '房间 $roomId',
+          title: '点击进入直播间',
+        ),
+      ];
+    }
+  }
+
+  /// 从输入里提取房间号：纯数字，或链接末尾的数字。
+  String? _extractRoomId(String raw) {
+    // 纯数字
+    if (RegExp(r'^\d{3,}$').hasMatch(raw)) return raw;
+
+    // 链接或带前缀的串：取第一段连续数字（长度 ≥ 3）
+    final match = RegExp(r'(\d{3,})').firstMatch(raw);
+    return match?.group(1);
+  }
+
   @override
   Future<RoomInfo> fetchRoomInfo(String roomId) async {
     final bundle = await _resolveRoom(roomId);
