@@ -26,6 +26,12 @@ class _SidebarState extends State<Sidebar> {
   bool _collapsed = false;
 
   @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final width = _collapsed ? TallySize.sidebarCollapsed : TallySize.sidebar;
     return AnimatedContainer(
@@ -37,10 +43,18 @@ class _SidebarState extends State<Sidebar> {
         listenable: FollowStore.instance,
         builder: (context, _) {
           final store = FollowStore.instance;
-          final rooms = store.sortedRooms;
+          final keyword = _keyword.trim().toLowerCase();
+          final rooms = store.sortedRooms
+              .where((room) =>
+                  keyword.isEmpty ||
+                  room.nickname.toLowerCase().contains(keyword) ||
+                  room.title.toLowerCase().contains(keyword))
+              .toList();
           return Column(
             children: [
-              _buildHeader(rooms.length),
+              _buildHeader(store.sortedRooms.where((r) => r.isLive).length,
+                  store.rooms.length),
+              if (!_collapsed) _buildSearch(),
               const Divider(height: 1),
               Expanded(
                 child: rooms.isEmpty
@@ -54,7 +68,39 @@ class _SidebarState extends State<Sidebar> {
     );
   }
 
-  Widget _buildHeader(int count) {
+  /// 关注栏内搜索框（窄、矮，和侧栏宽度匹配）。
+  Widget _buildSearch() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          TallySpace.sm, 0, TallySpace.sm, TallySpace.sm),
+      child: SizedBox(
+        height: 32,
+        child: TextField(
+          controller: _search,
+          onChanged: (value) => setState(() => _keyword = value),
+          style: TallyType.subtitle.copyWith(color: TallyColors.textPrimary),
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: '搜索关注',
+            hintStyle: TallyType.meta,
+            prefixIcon: const Icon(Icons.search,
+                size: 15, color: TallyColors.textTertiary),
+            prefixIconConstraints:
+                const BoxConstraints(minWidth: 28, minHeight: 28),
+            filled: true,
+            fillColor: TallyColors.inset,
+            contentPadding: const EdgeInsets.symmetric(vertical: 6),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(TallyRadius.pill),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(int liveCount, int totalCount) {
     return SizedBox(
       height: 48,
       child: Row(

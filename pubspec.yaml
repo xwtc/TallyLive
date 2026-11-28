@@ -32,6 +32,8 @@ dependencies:
 
   # 常用
   shared_preferences: ^2.3.2
+  # 桌面真全屏（覆盖任务栏）：Windows/macOS/Linux 有效，移动端用 SystemChrome
+  window_manager: ^0.4.3
 
 dev_dependencies:
   flutter_test:

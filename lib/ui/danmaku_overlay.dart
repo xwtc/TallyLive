@@ -23,6 +23,8 @@ class DanmakuOverlay extends StatefulWidget {
     this.opacity = 0.95,
     this.duration = 8,
     this.area = 0.55,
+    this.blockedKeywords = const [],
+    this.colorful = true,
   });
 
   /// 弹幕消息流。
@@ -42,6 +44,9 @@ class DanmakuOverlay extends StatefulWidget {
 
   /// 屏蔽词：命中任一关键词的弹幕直接丢弃（对齐 DTV 的 DanmuBlockControl）。
   final List<String> blockedKeywords;
+
+  /// 是否使用平台下发的颜色（false 则统一白色）。
+  final bool colorful;
 
   @override
   State<DanmakuOverlay> createState() => _DanmakuOverlayState();
@@ -126,7 +131,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
     _queue.add(
       DanmakuContentItem(
         text,
-        color: _parseColor(message.color),
+        color: widget.colorful ? _parseColor(message.color) : const Color(0xFFEDEDEB),
         type: DanmakuItemType.scroll,
       ),
     );

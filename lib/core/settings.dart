@@ -48,6 +48,7 @@ class AppSettings extends ChangeNotifier {
   static const String _kDanmakuDuration = 'danmaku_duration';
   static const String _kDanmakuArea = 'danmaku_area';
   static const String _kDanmakuBlocked = 'danmaku_blocked';
+  static const String _kDanmakuColorful = 'danmaku_colorful';
   static const String _kRecentRooms = 'recent_rooms';
   static const int _maxRecentRooms = 20;
 
@@ -59,11 +60,16 @@ class AppSettings extends ChangeNotifier {
 
   /// 屏蔽词（逗号/换行分隔）。命中的弹幕不渲染。
   String _danmakuBlocked = '';
+
+  /// 彩色弹幕（关掉则统一白色，对齐 DTV 的 colorful）。
+  bool _danmakuColorful = true;
   List<RecentRoom> _recentRooms = const [];
 
   bool get danmakuEnabled => _danmakuEnabled;
 
   String get danmakuBlocked => _danmakuBlocked;
+
+  bool get danmakuColorful => _danmakuColorful;
 
   /// 拆分后的屏蔽词列表（去空、去重）。
   List<String> get danmakuBlockedList => _danmakuBlocked
@@ -86,6 +92,7 @@ class AppSettings extends ChangeNotifier {
     _danmakuDuration = prefs.getDouble(_kDanmakuDuration) ?? 8;
     _danmakuArea = prefs.getDouble(_kDanmakuArea) ?? 0.5;
     _danmakuBlocked = prefs.getString(_kDanmakuBlocked) ?? '';
+    _danmakuColorful = prefs.getBool(_kDanmakuColorful) ?? true;
 
     final raw = prefs.getStringList(_kRecentRooms) ?? const [];
     final rooms = <RecentRoom>[];
@@ -113,6 +120,7 @@ class AppSettings extends ChangeNotifier {
     await prefs.setDouble(_kDanmakuDuration, _danmakuDuration);
     await prefs.setDouble(_kDanmakuArea, _danmakuArea);
     await prefs.setString(_kDanmakuBlocked, _danmakuBlocked);
+    await prefs.setBool(_kDanmakuColorful, _danmakuColorful);
     await prefs.setStringList(
       _kRecentRooms,
       _recentRooms.map((r) => '${r.platform.name}|${r.roomId}|${r.at}').toList(),
@@ -148,6 +156,13 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
     await _save();
   }
+  /// 彩色弹幕开关。
+  Future<void> setDanmakuColorful(bool value) async {
+    _danmakuColorful = value;
+    notifyListeners();
+    await _save();
+  }
+
   /// 设置屏蔽词（逗号/换行分隔）。
   Future<void> setDanmakuBlocked(String value) async {
     _danmakuBlocked = value;

@@ -1,10 +1,12 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:tallylive/core/danmaku.dart';
 import 'package:tallylive/core/danmaku_stats.dart';
 import 'package:tallylive/core/models.dart';
@@ -152,11 +154,20 @@ class _PlayerPageState extends State<PlayerPage> {
     final isMobile = defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.android;
     if (!isMobile) {
-      // 桌面：样式全屏 —— 壳层让位、播放器铺满应用窗口（系统窗口不变）。
-      // 真·窗口全屏（覆盖任务栏）需要窗口管理插件，放到 P3 阶段。
-      final session = PlayerSession.instance;
-      session.setChromeHidden(!session.chromeHidden);
-      setState(() {});
+      // 桌面：真全屏 —— window_manager 让窗口进入全屏（覆盖任务栏），
+      // 同时让壳层让位（侧栏/顶栏隐藏），两者一起才是 DTV 的 nativeFullscreen。
+      try {
+        final next = !await windowManager.isFullScreen();
+        await windowManager.setFullScreen(next);
+        PlayerSession.instance.setNativeFullscreen(next);
+        PlayerSession.instance.setChromeHidden(next);
+        if (mounted) setState(() {});
+      } catch (_) {
+        // 极端情况下（非窗口环境）退化成样式全屏
+        final session = PlayerSession.instance;
+        session.setChromeHidden(!session.chromeHidden);
+        if (mounted) setState(() {});
+      }
       _showControls();
       return;
     }
@@ -324,6 +335,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     duration: settings.danmakuDuration,
                     area: settings.danmakuArea,
                     blockedKeywords: settings.danmakuBlockedList,
+                    colorful: settings.danmakuColorful,
                   ),
                 );
               },
@@ -453,9 +465,6 @@ class _PlayerPageState extends State<PlayerPage> {
   /* --------------------------------------------------------------- 底部控制条 */
 
   Widget _buildControlBar() {
-    final isMobile = defaultTargetPlatform == TargetPlatform.iOS ||
-        defaultTargetPlatform == TargetPlatform.android;
-
     return Positioned(
       left: 0,
       right: 0,
@@ -575,9 +584,8 @@ class _PlayerPageState extends State<PlayerPage> {
                 color: TallyColors.textSecondary,
                 tooltip: '重新加载',
               ),
-              if (isMobile)
-                IconButton(
-                  onPressed: _toggleFullscreen,
+              IconButton(
+                onPressed: _toggleFullscreen,
                   icon: Icon(
                     (_immersive || PlayerSession.instance.chromeHidden)
                         ? Icons.fullscreen_exit
@@ -877,6 +885,25 @@ class DanmakuSettingsSheet extends StatelessWidget {
                   divisions: 18,
                   suffix: '${(settings.danmakuArea * 100).round()}%',
                   onChanged: settings.setDanmakuArea,
+                ),
+                Row(
+                  children: [
+                    const SizedBox(
+                      width: 68,
+                      child: Text('彩色弹幕', style: TallyType.subtitle),
+                    ),
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Switch(
+                          value: settings.danmakuColorful,
+                          activeThumbColor: TallyColors.signalBlue,
+                          onChanged: settings.setDanmakuColorful,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 48),
+                  ],
                 ),
                 const SizedBox(height: TallySpace.sm),
                 TextFormField(
