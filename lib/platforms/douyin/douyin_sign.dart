@@ -24,7 +24,7 @@ import 'package:flutter_js/flutter_js.dart';
 class DouyinSign {
   DouyinSign._();
 
-  static JsRuntime? _runtime;
+  static JavascriptRuntime? _runtime;
   static bool _loaded = false;
 
   /// 初始化运行时并加载脚本（只做一次，约几百毫秒）。
