@@ -14,6 +14,7 @@ import 'package:tallylive/core/follows.dart';
 import 'package:tallylive/core/models.dart';
 import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/core/settings.dart';
+import 'package:tallylive/platforms/bilibili/bilibili_danmaku.dart';
 import 'package:tallylive/platforms/danmaku_factory.dart';
 import 'package:tallylive/ui/components/atoms.dart';
 import 'package:tallylive/ui/components/block_words_sheet.dart';
@@ -77,8 +78,12 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// 弹幕连接失败的原因（非空时在调试面板与弹幕列表里显示）。
   String? _danmakuError;
+
+  /// 弹幕连接的当前阶段（显示在面板里，知道卡在哪一步）。
+  String? _danmakuStage;
   StreamSubscription<bool>? _danmakuStatusSub;
   StreamSubscription<String>? _danmakuErrorSub;
+  VoidCallback? _danmakuStageSub;
 
   /// 是否展开弹幕调试面板（右键标题栏切换，仅诊断构建）。
   bool _showStats = false;
@@ -235,6 +240,14 @@ class _PlayerPageState extends State<PlayerPage> {
     try {
       // 播放页已有真实房间号，传给弹幕客户端省掉一次房间查询（首帧更快）
       await client.start(widget.room.roomId, realRoomId: widget.room.roomId);
+      // B 站客户端会报阶段，其它平台没有就保持 null
+      if (client is BilibiliDanmakuClient) {
+        _danmakuStageSub = client.stage.addListener(() {
+          if (!mounted) return;
+          setState(() => _danmakuStage = client.stage.value);
+        });
+        _danmakuStage = client.stage.value;
+      }
     } catch (error) {
       // 弹幕失败不影响看画面，但要把原因留下来，否则只显示"暂无弹幕"
       if (mounted) setState(() => _danmakuError = error.toString());
@@ -377,6 +390,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _hideTimer?.cancel();
     _danmakuStatusSub?.cancel();
     _danmakuErrorSub?.cancel();
+    _danmakuStageSub?.call();
     _danmaku?.dispose();
     _danmaku = null;
     _player.dispose();
@@ -419,6 +433,7 @@ class _PlayerPageState extends State<PlayerPage> {
               DanmuPanel(
                 stream: _danmaku?.messages ?? Stream<DanmakuMessage>.empty(),
                 errorHint: _danmakuError,
+                statusHint: _danmakuStage,
                 onRetry: _restartDanmaku,
                 width: _danmuPanelWidth,
                 onResize: (width) {

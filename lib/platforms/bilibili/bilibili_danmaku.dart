@@ -57,6 +57,9 @@ class BilibiliDanmakuClient implements DanmakuClient {
   /// 连续失败太多次后停止自动重连（交给用户点「重新连接」）。
   bool _giveUp = false;
   int _failedAttempts = 0;
+
+  /// 当前阶段的说明（播放页显示在弹幕面板里，替代笼统的「正在连接」）。
+  final ValueNotifier<String> stage = ValueNotifier<String>('准备连接弹幕…');
   static const int _maxFailedAttempts = 6;
 
   static const Duration _heartbeatInterval = Duration(seconds: 30);
@@ -167,7 +170,10 @@ class BilibiliDanmakuClient implements DanmakuClient {
       // 降级过去只会让圆点永远黄着显示「正在连接」。宁可直接报错。
       final ({String token, List<String> hosts}) info;
       try {
-        info = await _client.fetchDanmuInfo(realRoomId);
+        info = await _client.fetchDanmuInfo(
+          realRoomId,
+          onStage: (value) => stage.value = value,
+        );
       } catch (error) {
         final message = _describeTokenFailure(error);
         _tokenBlocked = true;
@@ -179,6 +185,7 @@ class BilibiliDanmakuClient implements DanmakuClient {
       _emitError('');
 
       // 3. 依次尝试各域名
+      stage.value = '正在连接弹幕服务器…';
       Object? lastError;
       for (final host in info.hosts) {
         if (_stopped) return;

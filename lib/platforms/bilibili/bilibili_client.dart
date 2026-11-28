@@ -23,6 +23,10 @@ class BilibiliClient extends PlatformClient {
 
   final LiveHttp _http;
 
+  /// 弹幕信息专用短超时客户端（默认 45s 会让「正在连接」卡几分钟）。
+  late final LiveHttp _danmuHttp =
+      LiveHttp(timeout: const Duration(seconds: 12));
+
   @override
   LivePlatform get platform => LivePlatform.bilibili;
 
@@ -402,78 +406,94 @@ class BilibiliClient extends PlatformClient {
   /// - 结果按房间缓存 10 分钟，避免重连风暴把配额打光；
   /// - -352 / -412 视为可重试，退避后重新签名再请求。
   Future<({String token, List<String> hosts})> fetchDanmuInfo(
-    String roomId,
-  ) async {
+    String roomId, {
+    void Function(String stage)? onStage,
+  }) async {
     final cached = _danmuCache[roomId];
     if (cached != null &&
         DateTime.now().difference(cached.fetchedAt) < _danmuCacheTTL) {
+      onStage?.call('已复用缓存');
       return (token: cached.token, hosts: cached.hosts);
     }
 
     // 先确保有真实 buvid3：假值 `buvid3=i` 会让这个接口更容易 -352
+    onStage?.call('正在获取设备标识…');
     await _fetchBuvid();
 
+    final hasLogin = AccountStore.instance.hasCookie(LivePlatform.bilibili);
+    // 两轮：先带登录态，被风控就退成匿名再来一轮（登录 Cookie 失效时很常见）
+    final rounds = hasLogin ? 2 : 1;
     Object? lastError;
-    // 3 次机会：-352 是限流，退避后重签往往就过了
-    for (var attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) {
-        await Future<void>.delayed(
-          Duration(milliseconds: 400 * attempt * attempt),
+
+    for (var round = 0; round < rounds; round++) {
+      final useLogin = hasLogin && round == 0;
+      final cookie = useLogin ? _cookieHeader : 'buvid3=$_buvid;'.trim();
+      for (var attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) {
+          await Future<void>.delayed(const Duration(milliseconds: 700));
+          // 只换 wts 重签，不重取 WBI key —— 重取 nav 会让卡顿时长翻倍
+          await Future<void>.delayed(const Duration(milliseconds: 1));
+        }
+        onStage?.call(
+          useLogin ? '正在获取弹幕服务器（登录态）…' : '正在获取弹幕服务器…',
         );
-        // wts 每次都会变，但 key 若已轮换也需要重取
-        _wbi.invalidate();
-      }
-      final query = await _wbi.sign({
-        'id': roomId,
-        'type': '0',
-        'web_location': '444.8',
-      });
 
-      final json =
-          await _http.getJson('$_urlDanmuInfo?$query', headers: _headers);
-      final map = _asMap(json);
-      final code = _asInt(map['code']);
-      if (code != 0) {
-        lastError = BilibiliApiException(
-          'getDanmuInfo',
-          code,
-          _asString(map['msg']),
+        final query = await _wbi.sign({
+          'id': roomId,
+          'type': '0',
+          'web_location': '444.8',
+        });
+
+        final json = await _danmuHttp.getJson(
+          '$_urlDanmuInfo?$query',
+          headers: {..._headers, 'Cookie': cookie},
         );
-        // 只有风控/限流类错误值得重试
-        if (code != -352 && code != -412 && code != -799) break;
-        continue;
-      }
+        final map = _asMap(json);
+        final code = _asInt(map['code']);
+        if (code != 0) {
+          lastError = BilibiliApiException(
+            'getDanmuInfo',
+            code,
+            _asString(map['msg']),
+          );
+          // 只有风控/限流类错误值得重试
+          if (code != -352 && code != -412 && code != -799 && code != -101) {
+            break;
+          }
+          continue;
+        }
 
-      final data = _asMap(map['data']);
-      final token = _asString(data['token']);
+        final data = _asMap(map['data']);
+        final token = _asString(data['token']);
+        final hosts = <String>[];
+        final seen = <String>{};
+        for (final item in _asList(data['host_list'])) {
+          final host = _asString(_asMap(item)['host']).trim();
+          if (host.isEmpty || !seen.add(host)) continue;
+          hosts.add(host);
+        }
+        if (token.isEmpty || hosts.isEmpty) {
+          lastError = const BilibiliApiException(
+              'getDanmuInfo', 0, '未返回 token 或服务器列表');
+          continue;
+        }
 
-      final hosts = <String>[];
-      final seen = <String>{};
-      for (final item in _asList(data['host_list'])) {
-        final host = _asString(_asMap(item)['host']).trim();
-        if (host.isEmpty || !seen.add(host)) continue;
-        hosts.add(host);
-      }
-      if (token.isEmpty || hosts.isEmpty) {
-        lastError = const BilibiliApiException(
-          'getDanmuInfo', 0, '未返回 token 或服务器列表');
-        continue;
-      }
-
-      _danmuCache[roomId] =
-          _DanmuCacheEntry(token: token, hosts: hosts, fetchedAt: DateTime.now());
-      // 缓存别无限长，房间看多了会占内存
-      if (_danmuCache.length > 24) {
-        final oldest = _danmuCache.entries.reduce(
-          (a, b) => a.value.fetchedAt.isBefore(b.value.fetchedAt) ? a : b,
+        _danmuCache[roomId] = _DanmuCacheEntry(
+          token: token,
+          hosts: hosts,
+          fetchedAt: DateTime.now(),
         );
-        _danmuCache.remove(oldest.key);
+        if (_danmuCache.length > 24) {
+          final oldest = _danmuCache.entries.reduce(
+            (a, b) => a.value.fetchedAt.isBefore(b.value.fetchedAt) ? a : b,
+          );
+          _danmuCache.remove(oldest.key);
+        }
+        return (token: token, hosts: hosts);
       }
-      return (token: token, hosts: hosts);
     }
 
-    throw lastError ??
-        const BilibiliApiException('getDanmuInfo', 0, '未知错误');
+    throw lastError ?? const BilibiliApiException('getDanmuInfo', 0, '未知错误');
   }
 
   /// 从 nav 接口取 WBI 的 img_key / sub_key。

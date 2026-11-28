@@ -449,7 +449,13 @@ class _CategoryBarState extends State<CategoryBar> {
                   ),
                 ),
                 const Spacer(),
-                Text('${_categories.length} 个分区', style: TallyType.meta),
+                Text(
+                  '${_categories.length} 个分区',
+                  style: TallyType.meta.copyWith(
+                    decoration: TextDecoration.none,
+                    decorationColor: Colors.transparent,
+                  ),
+                ),
               ],
             ),
           ),

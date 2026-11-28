@@ -19,6 +19,7 @@ class DanmuPanel extends StatefulWidget {
     this.width = 196,
     this.errorHint,
     this.onRetry,
+    this.statusHint,
     this.onClose,
     this.onResize,
   });
@@ -32,6 +33,9 @@ class DanmuPanel extends StatefulWidget {
 
   /// 点「重新连接」时回调（连接失败后停止自动重试时才有意义）。
   final VoidCallback? onRetry;
+
+  /// 当前连接阶段说明（如「正在获取弹幕服务器…」）。
+  final String? statusHint;
   final VoidCallback? onClose;
 
   /// 拖拽左侧手柄调整宽度（对齐 DTV：168~320）。
@@ -217,7 +221,7 @@ class _DanmuPanelState extends State<DanmuPanel> {
                         children: [
                           Text(
                             widget.errorHint == null
-                                ? '暂无弹幕，正在连接…'
+                                (widget.statusHint ?? '暂无弹幕，正在连接…')
                                 : '弹幕连接失败：${widget.errorHint}',
                             textAlign: TextAlign.center,
                             style: TallyType.meta.copyWith(
