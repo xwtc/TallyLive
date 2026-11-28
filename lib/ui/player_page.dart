@@ -19,6 +19,7 @@ import 'package:tallylive/ui/components/atoms.dart';
 import 'package:tallylive/ui/components/danmu_panel.dart';
 import 'package:tallylive/ui/components/login_sheet.dart';
 import 'package:tallylive/ui/danmaku_overlay.dart';
+import 'package:tallylive/ui/components/toast.dart';
 import 'package:tallylive/ui/theme.dart';
 
 /// 播放页。
@@ -220,9 +221,7 @@ class _PlayerPageState extends State<PlayerPage> {
         setState(() => _lineId = fallback.id);
         url = _variant.urlForLine(fallback.id);
         if (mounted) {
-          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-            SnackBar(content: Text('该线路暂无地址，已切到 ${fallback.label}')),
-          );
+          context.showToast('该线路暂无地址，已切到 ${fallback.label}');
         }
       }
     }
@@ -548,9 +547,7 @@ class _PlayerPageState extends State<PlayerPage> {
               viewers: widget.room.online,
             );
             if (!mounted) return;
-            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-              SnackBar(content: Text(now ? '已关注' : '已取消关注')),
-            );
+            context.showToast(now ? '已关注' : '已取消关注');
           },
           child: MouseRegion(
             cursor: SystemMouseCursors.click,

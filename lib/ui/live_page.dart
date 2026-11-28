@@ -10,6 +10,7 @@ import 'package:tallylive/ui/shell/navbar.dart';
 import 'package:tallylive/ui/components/states.dart';
 import 'package:tallylive/ui/components/streamer_card.dart';
 import 'package:tallylive/ui/components/streamer_row.dart';
+import 'package:tallylive/ui/components/toast.dart';
 import 'package:tallylive/ui/theme.dart';
 
 /// 「直播」页面内容（壳层提供的顶栏/侧栏在外层）。
@@ -280,9 +281,7 @@ class _LivePageState extends State<LivePage> {
     if (!mounted) return;
     // 卡片上的关注按钮状态来自 FollowStore，切完要重建一次
     setState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(followed ? '已关注' : '已取消关注')),
-    );
+    context.showToast(followed ? '已关注' : '已取消关注');
   }
 
   Future<void> _showStreamerMenu(Streamer streamer) async {
@@ -305,9 +304,7 @@ class _LivePageState extends State<LivePage> {
     } else if (choice == 'copy') {
       await Clipboard.setData(ClipboardData(text: streamer.id));
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已复制房间号 ${streamer.id}')),
-      );
+      context.showToast('已复制房间号 ${streamer.id}');
     }
   }
 

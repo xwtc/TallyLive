@@ -242,6 +242,18 @@ class FollowStore extends ChangeNotifier {
         _groupsKey, _groups.map((group) => group.encode()).toList());
   }
 
+  /// 整体替换（同步下载时用）：覆盖房间与分组并落盘。
+  Future<void> replaceAll({
+    required List<FollowRoom> rooms,
+    required List<FollowGroup> groups,
+  }) async {
+    _rooms = List<FollowRoom>.from(rooms);
+    _groups = List<FollowGroup>.from(groups);
+    await _persist();
+    await _persistGroups();
+    notifyListeners();
+  }
+
   /// 拖拽排序后写回。
   Future<void> reorder(int oldIndex, int newIndex) async {
     final list = [..._rooms];

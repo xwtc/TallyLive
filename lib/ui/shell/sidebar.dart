@@ -4,6 +4,8 @@ import 'package:tallylive/core/follows.dart';
 import 'package:tallylive/core/models.dart';
 import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/ui/components/atoms.dart';
+import 'package:tallylive/ui/components/ring_progress.dart';
+import 'package:tallylive/ui/components/toast.dart';
 import 'package:tallylive/ui/components/login_sheet.dart';
 import 'package:tallylive/ui/theme.dart';
 
@@ -114,15 +116,12 @@ class _SidebarState extends State<Sidebar> {
                 color: TallyColors.textTertiary,
               )),
           const Spacer(),
-          // 刷新关注状态（转圈 + 进度环）
-          _SideAction(
-            icon: _refreshing ? null : Icons.refresh,
-            busy: _refreshing,
-            tooltip: _refreshing
-                ? (_refreshTotal > 0
-                    ? '正在刷新 $_refreshDone/$_refreshTotal'
-                    : '正在刷新…')
-                : '刷新关注状态',
+          // 刷新关注状态：转圈图标 + 外圈进度环（对齐 DTV 的 RingProgress）
+          _RefreshAction(
+            refreshing: _refreshing,
+            progress: _refreshTotal > 0 ? _refreshDone / _refreshTotal : 0,
+            done: _refreshDone,
+            total: _refreshTotal,
             onTap: _refreshing ? null : _refreshStatuses,
           ),
           _SideAction(
@@ -328,7 +327,7 @@ class _SidebarState extends State<Sidebar> {
     } else if (updated > 0) {
       _toast('已刷新 $updated 位，$failed 位暂时无法获取状态');
     } else {
-      _toast('刷新失败，请稍后重试');
+      _toast('刷新失败，请稍后重试', kind: ToastKind.error);
     }
   }
 
@@ -462,11 +461,10 @@ class _SidebarState extends State<Sidebar> {
     );
   }
 
-  void _toast(String message) {
+  void _toast(String message, {ToastKind kind = ToastKind.info}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    // 右下角小卡片，不用 SnackBar（后者会横跨整个底部、挡住控件条）
+    context.showToast(message, kind: kind);
   }
 }
 
@@ -529,6 +527,92 @@ class _SideActionState extends State<_SideAction> {
                         ? TallyColors.textPrimary
                         : TallyColors.textTertiary,
                   ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 刷新按钮：刷新中显示「自转图标 + 外圈进度环」。
+///
+/// 对齐 DTV：图标照常转圈，圆环的弧长表示「已刷新 / 总数」。
+class _RefreshAction extends StatefulWidget {
+  const _RefreshAction({
+    required this.refreshing,
+    required this.progress,
+    required this.done,
+    required this.total,
+    required this.onTap,
+  });
+
+  final bool refreshing;
+  final double progress;
+  final int done;
+  final int total;
+  final VoidCallback? onTap;
+
+  @override
+  State<_RefreshAction> createState() => _RefreshActionState();
+}
+
+class _RefreshActionState extends State<_RefreshAction> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final tooltip = widget.refreshing
+        ? (widget.total > 0
+            ? '正在刷新 ${widget.done}/${widget.total}'
+            : '正在刷新…')
+        : '刷新关注状态';
+
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 500),
+      child: MouseRegion(
+        cursor: widget.onTap == null
+            ? SystemMouseCursors.basic
+            : SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Container(
+            width: 28,
+            height: 28,
+            margin: const EdgeInsets.symmetric(horizontal: 1),
+            decoration: BoxDecoration(
+              color: _hovered && widget.onTap != null
+                  ? TallyColors.raised
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // 外圈进度环（只在刷新中或已有进度时画）
+                if (widget.refreshing || widget.progress > 0)
+                  RingProgress(
+                    value: widget.progress,
+                    size: 26,
+                    stroke: 2,
+                  ),
+                widget.refreshing
+                    ? const SpinningIcon(
+                        icon: Icons.rotate_right,
+                        size: 13,
+                        color: TallyColors.signalBlue,
+                      )
+                    : Icon(
+                        Icons.refresh,
+                        size: 15,
+                        color: _hovered && widget.onTap != null
+                            ? TallyColors.textPrimary
+                            : TallyColors.textTertiary,
+                      ),
+              ],
+            ),
           ),
         ),
       ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:tallylive/core/feed_ui.dart';
 import 'package:tallylive/core/models.dart';
 import 'package:tallylive/ui/components/inline_search.dart';
+import 'package:tallylive/ui/components/sync_sheet.dart';
 import 'package:tallylive/ui/shell/window_controls.dart';
 import 'package:tallylive/ui/theme.dart';
 
@@ -39,10 +40,16 @@ class Navbar extends StatelessWidget {
           _ToolGroup(children: [
             _ToolButton(
               icon: Icons.sync_alt,
-              tooltip: '数据同步（待接入）',
+              tooltip: '数据同步',
               onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('数据同步待接入')),
+                showModalBottomSheet<void>(
+                  context: context,
+                  backgroundColor: TallyColors.raised,
+                  isScrollControlled: true,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+                  ),
+                  builder: (_) => const SyncSheet(),
                 );
               },
             ),
