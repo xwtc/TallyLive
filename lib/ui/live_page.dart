@@ -199,6 +199,24 @@ class _LivePageState extends State<LivePage> {
     }
   }
 
+  /// 网格列数：按最小卡片宽 220 排，留出 gap。
+  int _gridColumnsFor(double width) {
+    const padding = TallySpace.md * 2;
+    final usable = width - padding;
+    final columns =
+        ((usable + TallySize.gridGap) / (TallySize.cardMin + TallySize.gridGap))
+            .floor();
+    return columns.clamp(1, 8);
+  }
+
+  /// 网格行高：封面 16:9 + 信息区（头像 32 / 上 13 / 下 15 / 两行文字 ≈ 78）。
+  double _gridExtentFor(double width) {
+    const padding = TallySpace.md * 2;
+    final columns = _gridColumnsFor(width);
+    final itemWidth = (width - padding - TallySize.gridGap * (columns - 1)) /
+        columns;
+    return itemWidth * 9 / 16 + 78;
+  }
   String _friendlyError(Object error) {
     final text = error.toString();
     if (text.contains('UnimplementedError')) return '该平台的列表接口尚未接入';
@@ -323,7 +341,12 @@ class _LivePageState extends State<LivePage> {
           ),
         TallyHeader(liveCount: _items.where((s) => s.isLive).length),
         if (_note.isNotEmpty) _buildNote(),
-        Expanded(child: _buildBody(isCompact)),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) =>
+                _buildBody(isCompact, constraints.maxWidth),
+          ),
+        ),
       ],
     );
   }
@@ -381,7 +404,7 @@ class _LivePageState extends State<LivePage> {
     );
   }
 
-  Widget _buildBody(bool isCompact) {
+  Widget _buildBody(bool isCompact, double width) {
     final Widget child;
     if (_booting) {
       child = _buildSkeleton(isCompact);
@@ -393,7 +416,7 @@ class _LivePageState extends State<LivePage> {
         message: '这个分区现在没有在播的房间\n换一个分区看看',
       );
     } else {
-      child = _buildContent(isCompact);
+      child = _buildContent(isCompact, width);
     }
 
     return AnimatedSwitcher(
@@ -431,7 +454,7 @@ class _LivePageState extends State<LivePage> {
     );
   }
 
-  Widget _buildContent(bool isCompact) {
+  Widget _buildContent(bool isCompact, double width) {
     return RefreshIndicator(
       color: TallyColors.signalBlue,
       backgroundColor: TallyColors.raised,
@@ -464,12 +487,13 @@ class _LivePageState extends State<LivePage> {
                     ),
                   )
                 : SliverGrid(
-                    gridDelegate:
-                        const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 320,
-                      mainAxisSpacing: TallySpace.lg,
-                      crossAxisSpacing: TallySpace.md,
-                      childAspectRatio: 0.72,
+                    // 行高 = 封面(16:9) + 信息区固定高度，按当前列宽精确算：
+                    // 用 childAspectRatio 估算会因为列宽取整而留白或溢出。
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: _gridColumnsFor(width),
+                      mainAxisSpacing: TallySize.gridGap,
+                      crossAxisSpacing: TallySize.gridGap,
+                      mainAxisExtent: _gridExtentFor(width),
                     ),
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {

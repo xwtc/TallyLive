@@ -9,6 +9,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:tallylive/core/danmaku.dart';
 import 'package:tallylive/core/danmaku_stats.dart';
+import 'package:tallylive/core/follows.dart';
 import 'package:tallylive/core/models.dart';
 import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/core/settings.dart';
@@ -439,7 +440,41 @@ class _PlayerPageState extends State<PlayerPage> {
                   ),
                 ),
               ),
-              // 弹幕连接状态圆点（诊断用，release 剔除）
+              // 星标关注：未关注空心、已关注实心（对齐 DTV 的关注按钮语义）
+              ListenableBuilder(
+                listenable: FollowStore.instance,
+                builder: (context, _) {
+                  final followed = FollowStore.instance.isFollowing(
+                    widget.room.platform,
+                    widget.room.roomId,
+                  );
+                  return IconButton(
+                    tooltip: followed ? '取消关注' : '关注',
+                    iconSize: 20,
+                    onPressed: () async {
+                      final now = await FollowStore.instance.toggle(
+                        platform: widget.room.platform,
+                        roomId: widget.room.roomId,
+                        nickname: widget.room.nickname,
+                        title: widget.room.title,
+                        avatar: widget.room.avatar,
+                        isLive: widget.room.isLive,
+                        viewers: widget.room.online,
+                      );
+                      if (!mounted) return;
+                      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                        SnackBar(content: Text(now ? '已关注' : '已取消关注')),
+                      );
+                    },
+                    icon: Icon(
+                      followed ? Icons.star : Icons.star_border,
+                      color: followed
+                          ? TallyColors.stateAmber
+                          : TallyColors.textSecondary,
+                    ),
+                  );
+                },
+              ),              // 弹幕连接状态圆点（诊断用，release 剔除）
               if (kDiagnosticsEnabled && _danmakuOnline != null)
                 Tooltip(
                   message: _danmakuOnline! ? '弹幕已连接' : '弹幕重连中',

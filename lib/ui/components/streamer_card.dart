@@ -65,9 +65,9 @@ class _StreamerCardState extends State<StreamerCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildCover(streamer, dimmed),
-              // 用 Expanded 吃掉剩余高度：网格单元比内容矮时（窄窗口/测试环境）
-              // 也不会抛 RenderFlex overflow，只是信息区被裁掉一点。
-              Expanded(child: _buildMeta(streamer, dimmed)),
+              // 自然高度：网格单元高度由调用方按「封面 + 信息区」精确算好，
+              // 这里再用 Expanded 会把信息区顶到上方、下方留一片空白。
+              _buildMeta(streamer, dimmed),
             ],
           ),
         ),
