@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:tallylive/core/follows.dart';
 import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/ui/components/atoms.dart';
-import 'package:tallylive/ui/components/states.dart';
 import 'package:tallylive/ui/theme.dart';
 
 /// 左侧关注栏。
