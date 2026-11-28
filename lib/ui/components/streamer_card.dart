@@ -14,11 +14,15 @@ class StreamerCard extends StatefulWidget {
     super.key,
     required this.streamer,
     this.onTap,
+    this.onSecondaryTap,
     this.showPlatformTag = false,
   });
 
   final Streamer streamer;
   final VoidCallback? onTap;
+
+  /// 右键（桌面）打开操作菜单：关注 / 复制房间号。
+  final VoidCallback? onSecondaryTap;
   final bool showPlatformTag;
 
   @override
@@ -42,6 +46,7 @@ class _StreamerCardState extends State<StreamerCard> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
+        onSecondaryTap: widget.onSecondaryTap,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

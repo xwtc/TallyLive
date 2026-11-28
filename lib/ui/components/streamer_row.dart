@@ -12,11 +12,15 @@ class StreamerRow extends StatefulWidget {
     super.key,
     required this.streamer,
     this.onTap,
+    this.onSecondaryTap,
     this.showPlatformTag = false,
   });
 
   final Streamer streamer;
   final VoidCallback? onTap;
+
+  /// 右键（桌面）打开操作菜单：关注 / 复制房间号。
+  final VoidCallback? onSecondaryTap;
 
   /// 跨平台列表（如搜索结果「全部平台」）时显示来源标记。
   final bool showPlatformTag;
@@ -43,6 +47,7 @@ class _StreamerRowState extends State<StreamerRow> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
+        onSecondaryTap: widget.onSecondaryTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 90),
           height: 64,

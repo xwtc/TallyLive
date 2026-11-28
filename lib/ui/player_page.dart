@@ -8,6 +8,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:tallylive/core/danmaku.dart';
 import 'package:tallylive/core/danmaku_stats.dart';
 import 'package:tallylive/core/models.dart';
+import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/core/settings.dart';
 import 'package:tallylive/platforms/danmaku_factory.dart';
 import 'package:tallylive/ui/danmaku_overlay.dart';
@@ -32,11 +33,15 @@ class PlayerPage extends StatefulWidget {
     required this.room,
     required this.variants,
     this.lines = const [],
+    this.onClose,
   });
 
   final RoomInfo room;
   final List<StreamVariant> variants;
   final List<StreamLine> lines;
+
+  /// 关闭播放（壳层里等于关掉播放层；独立页面时为 null 走 Navigator）。
+  final VoidCallback? onClose;
 
   @override
   State<PlayerPage> createState() => _PlayerPageState();
@@ -143,9 +148,12 @@ class _PlayerPageState extends State<PlayerPage> {
     final isMobile = defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.android;
     if (!isMobile) {
-      // 桌面端真正的窗口全屏需要窗口管理插件（本项目未引入），
-      // 这里退化成「沉浸模式」：隐藏控件，最大化由系统窗口按钮完成。
-      setState(() => _controlsVisible = false);
+      // 桌面：样式全屏 —— 壳层让位、播放器铺满应用窗口（系统窗口不变）。
+      // 真·窗口全屏（覆盖任务栏）需要窗口管理插件，放到 P3 阶段。
+      final session = PlayerSession.instance;
+      session.setChromeHidden(!session.chromeHidden);
+      setState(() {});
+      _showControls();
       return;
     }
     _immersive = !_immersive;
@@ -331,7 +339,8 @@ class _PlayerPageState extends State<PlayerPage> {
           child: Row(
             children: [
               IconButton(
-                onPressed: () => Navigator.of(context).maybePop(),
+                onPressed: widget.onClose ??
+                    () => Navigator.of(context).maybePop(),
                 icon: const Icon(Icons.arrow_back, size: 20),
                 color: TallyColors.textPrimary,
                 tooltip: '返回',
@@ -517,7 +526,9 @@ class _PlayerPageState extends State<PlayerPage> {
                 IconButton(
                   onPressed: _toggleFullscreen,
                   icon: Icon(
-                    _immersive ? Icons.fullscreen_exit : Icons.fullscreen,
+                    (_immersive || PlayerSession.instance.chromeHidden)
+                        ? Icons.fullscreen_exit
+                        : Icons.fullscreen,
                     size: 20,
                   ),
                   color: TallyColors.textPrimary,
