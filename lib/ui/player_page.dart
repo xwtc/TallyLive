@@ -271,42 +271,39 @@ class _PlayerPageState extends State<PlayerPage> {
       body: MouseRegion(
         // 桌面端：鼠标一动就显示控件
         onHover: (_) => _showControls(),
-        child: Column(
+        // 完全对齐 DTV 的 playerBody：
+        //   Row[ stageCol（画面 + 覆盖其上的控件）, DanmuPanel（右侧占满高度） ]
+        //
+        // ⚠️ 控件条是**覆盖在画面底部**的浮层，不是把画面压扁的下半部分。
+        // 之前写成 Column[画面, 控件条] 会让画面变矮、面板也跟着变矮，
+        // 表现就是"面板跑到控件右边"而不是"占满高度"。
+        child: Row(
           children: [
-            // 上半：画面 + 右侧弹幕栏（对齐 DTV 的 playerBody）
             Expanded(
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(child: _buildStage()),
-                      if (_danmuPanelOpen)
-                        DanmuPanel(
-                          stream: _danmaku?.messages ??
-                              Stream<DanmakuMessage>.empty(),
-                          errorHint: _danmakuError,
-                          width: _danmuPanelWidth,
-                          onResize: (width) =>
-                              setState(() => _danmuPanelWidth = width),
-                          onClose: () =>
-                              setState(() => _danmuPanelOpen = false),
-                        ),
-                    ],
-                  ),
+                  _buildStage(),
                   _buildTopOverlay(),
+                  _buildControlBar(),
                   if (kDiagnosticsEnabled && _showStats)
                     Positioned(
                       left: 0,
-                      right: _danmuPanelOpen ? _danmuPanelWidth + 5 : 0,
-                      bottom: 8,
+                      right: 0,
+                      bottom: 64,
                       child: _buildStatsPanel(),
                     ),
                 ],
               ),
             ),
-            // 下半：控件条**横跨整个宽度**（DTV 的 dock 也是整行）
-            _buildControlBar(),
+            if (_danmuPanelOpen)
+              DanmuPanel(
+                stream: _danmaku?.messages ?? Stream<DanmakuMessage>.empty(),
+                errorHint: _danmakuError,
+                width: _danmuPanelWidth,
+                onResize: (width) => setState(() => _danmuPanelWidth = width),
+                onClose: () => setState(() => _danmuPanelOpen = false),
+              ),
           ],
         ),
       ),

@@ -34,6 +34,9 @@ dependencies:
   shared_preferences: ^2.3.2
   # 桌面真全屏（覆盖任务栏）：Windows/macOS/Linux 有效，移动端用 SystemChrome
   window_manager: ^0.4.3
+  # 抖音弹幕签名：官方只提供混淆 JS（byted_acrawler），
+  # 参考项目（DTV 的 goja / Simple Live 的 dart_quickjs）都是跑 JS，无法逆出算法。
+  flutter_js: ^0.8.7
 
 dev_dependencies:
   flutter_test:
@@ -45,3 +48,4 @@ flutter:
   assets:
     - assets/huya_categories.json
     - assets/douyin_categories.json
+    - assets/douyin_sign.js

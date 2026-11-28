@@ -83,6 +83,34 @@ class LiveHttp {
   }
 
   /// 发 GET 并把 JSON 解码成 Map/List。
+  /// 发 GET 并返回正文 + Set-Cookie。
+  ///
+  /// 抖音弹幕握手需要 ttwid cookie（缺了会返回 200 而不是 101），
+  /// 该 cookie 只能从响应头里取，所以单独提供这个方法。
+  Future<({String body, List<String> setCookies})> getTextWithHeaders(
+    String url, {
+    Map<String, String>? headers,
+  }) async {
+    try {
+      final response = await _dio.get<String>(
+        url,
+        options: Options(
+          responseType: ResponseType.plain,
+          headers: {
+            'User-Agent': defaultUA,
+            if (headers != null) ...headers,
+          },
+          followRedirects: true,
+          validateStatus: (status) => status != null && status < 500,
+        ),
+      );
+      final cookies = response.headers['set-cookie'] ?? const <String>[];
+      return (body: response.data ?? '', setCookies: cookies);
+    } catch (error) {
+      throw HttpRequestException(url, error);
+    }
+  }
+
   Future<dynamic> getJson(
     String url, {
     Map<String, String>? headers,

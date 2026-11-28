@@ -34,6 +34,9 @@ class DouyinClient extends PlatformClient {
   LivePlatform get platform => LivePlatform.douyin;
 
   /// 桌面 UA（a_bogus 的 UA 必须与请求头一致，否则签名不过）。
+  /// 桌面 UA（签名脚本的 navigator.userAgent 要对齐）。
+  static const String desktopUserAgent = _ua;
+
   static const String _ua =
       'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) '
       'Chrome/116.0.5845.97 Safari/537.36 Core/1.116.567.400 QQBrowser/19.7.6764.400';
@@ -79,6 +82,9 @@ class DouyinClient extends PlatformClient {
   /* ---------------------------------------------------------------- 分区 */
 
   List<CategoryGroup> _categoryCache = const [];
+
+  /// 缓存的 ttwid cookie（弹幕 WS 需要）。
+  String _ttwid = '';
 
   /// 分区树来自内置资源（DTV 同样处理：抖音没有稳定的分区接口）。
   /// 分区 id 形如 `1_1010032`（partition_type_partition）。
@@ -228,6 +234,39 @@ class DouyinClient extends PlatformClient {
 
     final variants = _buildVariants(_asMap(room['stream_url']));
     return StreamInfoResult(room: info, variants: variants);
+  }
+
+  /// 取 ttwid cookie。
+  ///
+  /// 弹幕 WS 握手少了它会返回 HTTP 200 而不是 101（实测），
+  /// 所以必须先访问一次直播首页把它收下来。
+  Future<String> fetchTtwid() async {
+    if (_ttwid.isNotEmpty) return _ttwid;
+    try {
+      final response = await _http.getTextWithHeaders(
+        'https://live.douyin.com/',
+        headers: {
+          'User-Agent': _ua,
+          'Accept': 'text/html,application/xhtml+xml',
+        },
+      );
+      for (final cookie in response.setCookies) {
+        final first = cookie.split(';').first.trim();
+        if (first.startsWith('ttwid=')) {
+          _ttwid = first;
+          break;
+        }
+      }
+    } catch (_) {
+      // 取不到也继续（可能仍能连上）
+    }
+    return _ttwid;
+  }
+
+  /// 取内部 roomId（19 位）。弹幕用的是它，不是 web_rid。
+  Future<String> fetchInternalRoomId(String roomId) async {
+    final bundle = await _resolveRoom(roomId);
+    return bundle.internalId;
   }
 
   /// 解析房间：先拿内部 roomId，再用 reflow 取详情。
