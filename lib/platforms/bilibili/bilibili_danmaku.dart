@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:brotli/brotli.dart' as brotli;
+// 注意：brotli 包导出的**实例**就叫 brotli，这里不能加 `as` 别名，
+// 否则 `brotli.decode()` 会被解析成库里的顶层 decode 函数（不存在）。
+import 'package:brotli/brotli.dart';
 
 import 'package:tallylive/core/danmaku.dart';
 import 'package:tallylive/core/danmaku_stats.dart';
