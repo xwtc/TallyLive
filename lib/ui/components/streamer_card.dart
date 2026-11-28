@@ -177,6 +177,9 @@ class _StreamerCardState extends State<StreamerCard> {
     return Container(
       padding: TallySize.cardMetaPadding,
       alignment: Alignment.topLeft,
+      // Container 的 clipBehavior 必须配合 decoration 使用；
+      // 这里给一个空 decoration 仅为了满足断言（不改变外观）。
+      decoration: const BoxDecoration(),
       clipBehavior: Clip.hardEdge,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
