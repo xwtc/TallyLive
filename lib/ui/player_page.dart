@@ -439,7 +439,7 @@ class _PlayerPageState extends State<PlayerPage> {
       room.platform.label,
       if (room.nickname.isNotEmpty) room.nickname,
       if (room.category.isNotEmpty) room.category,
-      if (room.online > 0) '${_formatCount(room.online)} 人气',
+      // 不显示人气：信息条已经够长，人气在列表卡片上已有
       'ID:${room.roomId}',
     ];
 

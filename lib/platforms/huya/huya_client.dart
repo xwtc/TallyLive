@@ -251,8 +251,10 @@ class HuyaClient extends PlatformClient {
       'Referer': 'https://www.huya.com/',
     });
     final root = _asMap(json);
-    // 虎牙把业务数据包在 data 里；返回 200 也可能带 status
-    final data = _asMap(root['data']);
+    // 实测：虎牙 getLiveList 的 vList / iTotalPage 都在【顶层】，
+    // 不在 data 里（按 data.vList 读会永远得到空列表 → 页面显示"没有在播"）。
+    // 同时兼容两种形状，避免上游改结构后再次静默空列表。
+    final data = root['data'] is Map ? _asMap(root['data']) : root;
     final list = _asList(data['vList']);
 
     final items = <Streamer>[];
