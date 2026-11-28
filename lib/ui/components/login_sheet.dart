@@ -106,10 +106,32 @@ class _LoginSheetState extends State<LoginSheet> {
 
       if (result.status == QrLoginStatus.success) {
         _pollTimer?.cancel();
-        await AccountStore.instance.setCookie(widget.platform, result.cookie);
+        // 扫码成功后**先校验登录态再落盘**：拿到 Set-Cookie 不等于真登录
+        // （偶尔会缺 SESSDATA），直接把无效 Cookie 存下来会让用户以为已登录。
+        var userName = '';
+        if (_isBilibili) {
+          final check = await BilibiliQrLogin().verify(result.cookie);
+          if (!mounted) return;
+          if (!check.loggedIn) {
+            setState(() {
+              _status = '扫码通过但登录态无效，请重试';
+              _loading = false;
+            });
+            _startQr();
+            return;
+          }
+          userName = check.userName;
+        }
+        if (!mounted) return;
+        await AccountStore.instance.setCookie(
+          widget.platform,
+          result.cookie,
+          userName: userName,
+        );
+        if (!mounted) return;
         setState(() {
           _status = '登录成功';
-          _success = AccountProfile(loggedIn: true);
+          _success = AccountProfile(loggedIn: true, userName: userName);
         });
         return;
       }

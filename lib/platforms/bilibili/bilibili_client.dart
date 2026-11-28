@@ -79,18 +79,30 @@ class BilibiliClient extends PlatformClient {
   late final WbiSigner _wbi = WbiSigner(fetchKeys: _fetchWbiKeys);
 
   /// B 站匿名请求也要求带 buvid3，否则部分接口 412。
+  ///
+  /// 登录后**必须把 buvid3 一起带上**：扫码拿到的 Cookie 里不一定包含
+  /// buvid3，而 getDanmuInfo / 搜索这类接口缺了它更容易被判风控（-352）。
+  String get _cookieHeader {
+    final login = AccountStore.instance.cookieOf(LivePlatform.bilibili).trim();
+    final parts = <String>[];
+    if (login.isNotEmpty) {
+      parts.add(login.endsWith(';') ? login : '$login;');
+    }
+    // 登录 Cookie 里已经带了 buvid3 就不要重复加
+    if (_buvid.isNotEmpty && !login.contains('buvid3=')) {
+      parts.add('buvid3=$_buvid;');
+    }
+    if (parts.isEmpty) return 'buvid3=i;';
+    return parts.join(' ');
+  }
+
   Map<String, String> get _headers {
-    // 登录后带真实 Cookie：搜索 / 列表 / getDanmuInfo 的风控阈值都明显更高。
-    final login = AccountStore.instance.cookieOf(LivePlatform.bilibili);
-    final cookie = login.isNotEmpty
-        ? login
-        : (_buvid.isNotEmpty ? 'buvid3=$_buvid;' : 'buvid3=i;');
     return {
       'User-Agent': _desktopUA,
       'Referer': _referer,
       'Origin': _origin,
       'Accept': 'application/json, text/plain, */*',
-      'Cookie': cookie,
+      'Cookie': _cookieHeader,
     };
   }
 
@@ -397,6 +409,9 @@ class BilibiliClient extends PlatformClient {
         DateTime.now().difference(cached.fetchedAt) < _danmuCacheTTL) {
       return (token: cached.token, hosts: cached.hosts);
     }
+
+    // 先确保有真实 buvid3：假值 `buvid3=i` 会让这个接口更容易 -352
+    await _fetchBuvid();
 
     Object? lastError;
     // 3 次机会：-352 是限流，退避后重签往往就过了
