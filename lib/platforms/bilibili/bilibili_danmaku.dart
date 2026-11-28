@@ -289,6 +289,8 @@ class BilibiliDanmakuClient implements DanmakuClient {
         // 认证还没通过就被关 → 服务端拒绝了这次 auth（最常见是 token 失效）
         if (!_authOk) {
           _emitError('B站弹幕连接被服务端关闭（认证未通过）');
+          // token 可能已失效：丢掉缓存，下次重新取
+          _client.invalidateDanmuCache(realRoomId);
         }
         _scheduleReconnect(const _DanmakuConnectError('连接被关闭'));
       },
@@ -437,6 +439,8 @@ class BilibiliDanmakuClient implements DanmakuClient {
       // auth 被拒：不直接停止（否则圆点会一直黄），
       // 计入失败次数后按更长的退避重连。
       _authFailures++;
+      // token 可能已失效：丢掉缓存，下次重新取，避免拿旧 token 死循环
+      _client.invalidateDanmuCache(_realRoomId.isEmpty ? _roomId : _realRoomId);
       stage.value = '认证被拒（code=$code）';
       _emitError('B站弹幕认证被拒（code=$code）');
       _scheduleReconnect(_DanmakuConnectError('auth 被拒 code=$code'));

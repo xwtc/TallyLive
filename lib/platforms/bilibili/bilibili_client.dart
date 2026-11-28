@@ -496,6 +496,14 @@ class BilibiliClient extends PlatformClient {
     throw lastError ?? const BilibiliApiException('getDanmuInfo', 0, '未知错误');
   }
 
+  /// 丢弃某房间的弹幕 token 缓存。
+  ///
+  /// B 站的弹幕 token 有时效，认证被拒后如果继续用缓存里的旧 token
+  /// 会一直失败（表现就是「连上→被关→重连」无限循环），必须重取。
+  void invalidateDanmuCache(String roomId) {
+    _danmuCache.remove(roomId);
+  }
+
   /// 从 nav 接口取 WBI 的 img_key / sub_key。
   ///
   /// 未登录时 nav 会返回 code=-101，但 data.wbi_img 仍然有值，所以不校验 code。
