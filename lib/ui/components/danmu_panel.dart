@@ -221,7 +221,7 @@ class _DanmuPanelState extends State<DanmuPanel> {
                         children: [
                           Text(
                             widget.errorHint == null
-                                (widget.statusHint ?? '暂无弹幕，正在连接…')
+                                ? (widget.statusHint ?? '暂无弹幕，正在连接…')
                                 : '弹幕连接失败：${widget.errorHint}',
                             textAlign: TextAlign.center,
                             style: TallyType.meta.copyWith(
