@@ -37,6 +37,12 @@ class _InlineSearchState extends State<InlineSearch> {
   String _query = '';
   int _activeIndex = -1;
 
+  /// 浮层用 OverlayEntry 承载，避免被父级裁剪（之前 Stack 内 Positioned 会被列表盖住）。
+  OverlayEntry? _panelEntry;
+
+  /// 输入框左边缘的全局坐标（用于定位浮层）。
+  final GlobalKey _fieldKey = GlobalKey();
+
   static const double _widthIdle = 190;
   static const double _widthExpanded = 292;
   static const double _panelWidth = 384;
@@ -50,6 +56,7 @@ class _InlineSearchState extends State<InlineSearch> {
 
   @override
   void dispose() {
+    _unmountPanel();
     _debounce?.cancel();
     _controller.removeListener(_onTextChanged);
     _controller.dispose();
@@ -58,7 +65,62 @@ class _InlineSearchState extends State<InlineSearch> {
   }
 
   void _onFocusChanged() {
-    if (mounted) setState(() => _expanded = _focus.hasFocus);
+    setState(() => _expanded = _focus.hasFocus);
+    _syncPanel();
+  }
+
+  /// 挂载/卸载浮层。
+  void _syncPanel() {
+    final shouldShow = _expanded && _controller.text.trim().isNotEmpty;
+    if (shouldShow && _panelEntry == null) {
+      _mountPanel();
+    } else if (!shouldShow && _panelEntry != null) {
+      _unmountPanel();
+    } else if (shouldShow) {
+      _panelEntry!.markNeedsBuild();
+    }
+  }
+
+  void _mountPanel() {
+    final overlay = Overlay.maybeOf(context);
+    if (overlay == null) return;
+    _panelEntry = OverlayEntry(builder: _buildOverlayPanel);
+    overlay.insert(_panelEntry!);
+  }
+
+  void _unmountPanel() {
+    _panelEntry?.remove();
+    _panelEntry = null;
+  }
+
+  Widget _buildOverlayPanel(BuildContext context) {
+    final box = _fieldKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return const SizedBox.shrink();
+    final origin = box.localToGlobal(Offset.zero);
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final left = (origin.dx + box.size.width - _panelWidth)
+        .clamp(8.0, screenWidth - _panelWidth - 8);
+
+    return Stack(
+      children: [
+        // 点击外部关闭
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: () {
+              _focus.unfocus();
+              _collapse();
+            },
+          ),
+        ),
+        Positioned(
+          left: left,
+          top: origin.dy + box.size.height + 4,
+          width: _panelWidth,
+          child: _buildPanel(),
+        ),
+      ],
+    );
   }
 
   void _onTextChanged() {
@@ -98,6 +160,7 @@ class _InlineSearchState extends State<InlineSearch> {
         _loading = false;
         _activeIndex = hits.isEmpty ? -1 : 0;
       });
+      _syncPanel();
     } catch (error) {
       if (!mounted || _query != keyword) return;
       setState(() {
@@ -135,6 +198,7 @@ class _InlineSearchState extends State<InlineSearch> {
       _error = null;
       _activeIndex = -1;
     });
+    _syncPanel();
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
@@ -180,7 +244,7 @@ class _InlineSearchState extends State<InlineSearch> {
           Align(
             alignment: Alignment.centerRight,
             child: AnimatedContainer(
-              key: _rootKey,
+              key: _fieldKey,
               duration: const Duration(milliseconds: 280),
               curve: Curves.easeOut,
               width: _expanded ? _widthExpanded : _widthIdle,
@@ -231,14 +295,7 @@ class _InlineSearchState extends State<InlineSearch> {
               ),
             ),
           ),
-          // 结果浮层（宽 384，右对齐）
-          if (showPanel)
-            Positioned(
-              top: 40,
-              right: 0,
-              width: _panelWidth,
-              child: _buildPanel(),
-            ),
+
         ],
       ),
     );

@@ -213,22 +213,72 @@ class _SidebarState extends State<Sidebar> {
       );
     }
 
-    return ReorderableListView.builder(
+    final groups = FollowStore.instance.groups;
+    // 未分组房间 + 各分组（分组作为小标题出现在列表里）
+    final ungrouped = rooms.where((room) => room.groupId.isEmpty).toList();
+
+    final entries = <Widget>[];
+    if (ungrouped.isNotEmpty) {
+      if (groups.isNotEmpty) {
+        entries.add(_groupHeader('未分组', ungrouped.length));
+      }
+      for (final room in ungrouped) {
+        entries.add(_buildTile(room, key: ValueKey(room.key)));
+      }
+    }
+    for (final group in groups) {
+      final items = rooms.where((room) => room.groupId == group.id).toList();
+      entries.add(_groupHeader(group.name, items.length, groupId: group.id));
+      for (final room in items) {
+        entries.add(_buildTile(room, key: ValueKey(room.key)));
+      }
+    }
+    return ListView(
       padding: const EdgeInsets.symmetric(vertical: TallySpace.sm),
-      buildDefaultDragHandles: false,
-      itemCount: rooms.length,
-      onReorder: (oldIndex, newIndex) {
-        FollowStore.instance.reorder(oldIndex, newIndex);
-      },
-      itemBuilder: (context, index) => ReorderableDragStartListener(
-        key: ValueKey(rooms[index].key),
-        index: index,
-        child: _SidebarTile(
-          room: rooms[index],
-          collapsed: false,
-          onTap: () => _open(rooms[index]),
-          onContextMenu: () => _showMenu(context, rooms[index]),
-        ),
+      children: entries,
+    );
+  }
+
+  Widget _buildTile(FollowRoom room, {Key? key}) {
+    return _SidebarTile(
+      key: key,
+      room: room,
+      collapsed: false,
+      onTap: () => _open(room),
+      onContextMenu: () => _showMenu(context, room),
+    );
+  }
+
+  Widget _groupHeader(String name, int count, {String groupId = ''}) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          TallySpace.md, TallySpace.sm, TallySpace.sm, 2),
+      child: Row(
+        children: [
+          Icon(
+            groupId.isEmpty ? Icons.folder_open : Icons.folder,
+            size: 12,
+            color: TallyColors.textTertiary,
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TallyType.tiny.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Text('$count', style: TallyType.tiny),
+          if (groupId.isNotEmpty)
+            _MiniAction(
+              icon: Icons.close,
+              tooltip: '删除分组',
+              onTap: () => FollowStore.instance.removeGroup(groupId),
+            ),
+        ],
       ),
     );
   }
@@ -282,9 +332,46 @@ class _SidebarState extends State<Sidebar> {
     }
   }
 
+  /// 新建分组：弹输入框，写进 FollowStore。
   Future<void> _createGroup() async {
-    // 分组功能未实现（数据模型只有单一关注列表），先明确提示
-    _toast('分组功能待接入');
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: TallyColors.raised,
+        title: const Text('新建分组', style: TallyType.nickname),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: TallyType.subtitle.copyWith(color: TallyColors.textPrimary),
+          decoration: InputDecoration(
+            hintText: '分组名称',
+            hintStyle: TallyType.meta,
+            filled: true,
+            fillColor: TallyColors.inset,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(TallyRadius.card),
+              borderSide: BorderSide.none,
+            ),
+          ),
+          onSubmitted: (value) => Navigator.of(context).pop(value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(controller.text),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null || name.trim().isEmpty) return;
+    await FollowStore.instance.addGroup(name);
+    _toast('已创建分组「${name.trim()}」');
   }
 
   void _open(FollowRoom room) {
@@ -308,10 +395,14 @@ class _SidebarState extends State<Sidebar> {
         position.dx + 240,
         position.dy + 200,
       ),
-      items: const [
-        PopupMenuItem(value: 'copy', child: Text('复制房间号')),
-        PopupMenuItem(value: 'unfollow', child: Text('取消关注')),
-        PopupMenuItem(value: 'login', child: Text('账号登录')),
+      items: [
+        const PopupMenuItem(value: 'copy', child: Text('复制房间号')),
+        const PopupMenuItem(value: 'unfollow', child: Text('取消关注')),
+        if (FollowStore.instance.groups.isNotEmpty)
+          PopupMenuItem(
+            value: 'group',
+            child: Text(room.groupId.isEmpty ? '移动到分组…' : '更换分组…'),
+          ),
       ],
     );
     if (choice == null) return;
@@ -321,10 +412,35 @@ class _SidebarState extends State<Sidebar> {
         _toast('房间号：${room.roomId}');
       case 'unfollow':
         await FollowStore.instance.remove(room);
-      case 'login':
+      case 'group':
         if (!mounted) return;
-        await _openLogin();
+        await _pickGroup(room);
     }
+  }
+
+  /// 选择目标分组。
+  Future<void> _pickGroup(FollowRoom room) async {
+    final groups = FollowStore.instance.groups;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        backgroundColor: TallyColors.raised,
+        title: const Text('移动到分组', style: TallyType.nickname),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(context).pop(''),
+            child: const Text('未分组'),
+          ),
+          for (final group in groups)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(group.id),
+              child: Text(group.name),
+            ),
+        ],
+      ),
+    );
+    if (choice == null) return;
+    await FollowStore.instance.moveToGroup(room.key, choice);
   }
 
   /// 账号登录（只对 B站/斗鱼；其它平台没有登录体系）。
@@ -547,6 +663,37 @@ class _LiveDot extends StatelessWidget {
         color: on ? _onColor : _offColor,
         // 压在头像上要描一圈底色，否则边界糊在一起
         border: Border.all(color: TallyColors.surface, width: 2),
+      ),
+    );
+  }
+}
+
+/// 分组标题右侧的小图标（删除分组等）。
+class _MiniAction extends StatelessWidget {
+  const _MiniAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: onTap,
+          child: SizedBox(
+            width: 18,
+            height: 18,
+            child: Icon(icon, size: 12, color: TallyColors.textTertiary),
+          ),
+        ),
       ),
     );
   }

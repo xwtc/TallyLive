@@ -15,11 +15,15 @@ Future<void> main() async {
   // 移动端不初始化（那里用 SystemChrome 的沉浸模式）。
   if (!kIsWeb && isDesktopPlatform) {
     await windowManager.ensureInitialized();
+    // 用自绘窗口按钮，所以隐藏系统标题栏（对齐 DTV 的 frameless 窗口）。
+    // 拖动区域由 Navbar 自己提供（见 window_controls / app_shell）。
     const windowOptions = WindowOptions(
       size: Size(1280, 800),
       minimumSize: Size(960, 600),
       center: true,
       title: 'TallyLive',
+      titleBarStyle: TitleBarStyle.hidden,
+      windowButtonVisibility: false,
     );
     await windowManager.waitUntilReadyToShow(windowOptions, () async {
       await windowManager.show();

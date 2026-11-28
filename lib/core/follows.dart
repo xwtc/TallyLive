@@ -16,6 +16,7 @@ class FollowRoom {
     this.avatar = '',
     this.isLive = false,
     this.viewers = 0,
+    this.groupId = '',
   });
 
   final LivePlatform platform;
@@ -28,6 +29,9 @@ class FollowRoom {
   final bool isLive;
   final int viewers;
 
+  /// 所属分组 id（空串 = 未分组）。
+  final String groupId;
+
   String get key => '${platform.name}:$roomId';
 
   FollowRoom copyWith({
@@ -36,6 +40,7 @@ class FollowRoom {
     String? avatar,
     bool? isLive,
     int? viewers,
+    String? groupId,
   }) =>
       FollowRoom(
         platform: platform,
@@ -45,6 +50,7 @@ class FollowRoom {
         avatar: avatar ?? this.avatar,
         isLive: isLive ?? this.isLive,
         viewers: viewers ?? this.viewers,
+        groupId: groupId ?? this.groupId,
       );
 
   /// 序列化格式：`platform|roomId|nickname|title|avatar|isLive|viewers`
@@ -59,6 +65,7 @@ class FollowRoom {
         avatar,
         isLive ? '1' : '0',
         '$viewers',
+        groupId,
       ].map((part) => part.replaceAll('|', ' ')).join('|');
 
   static FollowRoom? decode(String raw) {
@@ -75,6 +82,8 @@ class FollowRoom {
       avatar: parts.length > 4 ? parts[4] : '',
       isLive: parts.length > 5 && parts[5] == '1',
       viewers: parts.length > 6 ? (int.tryParse(parts[6]) ?? 0) : 0,
+      // 第 8 段是分组（旧数据没有，默认未分组）
+      groupId: parts.length > 7 ? parts[7] : '',
     );
   }
 }
@@ -89,11 +98,22 @@ class FollowStore extends ChangeNotifier {
   static final FollowStore instance = FollowStore._();
 
   static const String _key = 'followed_rooms';
+  static const String _groupsKey = 'follow_groups';
+
+  /// 分组列表（id → 名称）。空表示未分组。
+  List<FollowGroup> _groups = const [];
 
   List<FollowRoom> _rooms = const [];
   bool _loaded = false;
 
   List<FollowRoom> get rooms => _rooms;
+
+  /// 全部分组。
+  List<FollowGroup> get groups => _groups;
+
+  /// 某个分组下的房间（[groupId] 为空表示未分组）。
+  List<FollowRoom> roomsOfGroup(String groupId) =>
+      sortedRooms.where((room) => room.groupId == groupId).toList();
   bool get isEmpty => _rooms.isEmpty;
   bool get loaded => _loaded;
 
@@ -115,6 +135,11 @@ class FollowStore extends ChangeNotifier {
     _rooms = raw
         .map(FollowRoom.decode)
         .whereType<FollowRoom>()
+        .toList(growable: true);
+    final groupsRaw = prefs.getStringList(_groupsKey) ?? const [];
+    _groups = groupsRaw
+        .map(FollowGroup.decode)
+        .whereType<FollowGroup>()
         .toList(growable: true);
     _loaded = true;
     notifyListeners();
@@ -167,6 +192,56 @@ class FollowStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 新建分组。
+  Future<void> addGroup(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    final id = 'g${DateTime.now().millisecondsSinceEpoch}';
+    _groups = [..._groups, FollowGroup(id: id, name: trimmed)];
+    await _persistGroups();
+    notifyListeners();
+  }
+
+  /// 重命名分组。
+  Future<void> renameGroup(String id, String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    _groups = [
+      for (final group in _groups)
+        group.id == id ? FollowGroup(id: id, name: trimmed) : group,
+    ];
+    await _persistGroups();
+    notifyListeners();
+  }
+
+  /// 删除分组（组内房间回到未分组）。
+  Future<void> removeGroup(String id) async {
+    _groups = _groups.where((group) => group.id != id).toList();
+    _rooms = [
+      for (final room in _rooms)
+        room.groupId == id ? room.copyWith(groupId: '') : room,
+    ];
+    await _persistGroups();
+    await _persist();
+    notifyListeners();
+  }
+
+  /// 把房间移动到分组（[groupId] 为空 = 未分组）。
+  Future<void> moveToGroup(String roomKey, String groupId) async {
+    _rooms = [
+      for (final room in _rooms)
+        room.key == roomKey ? room.copyWith(groupId: groupId) : room,
+    ];
+    await _persist();
+    notifyListeners();
+  }
+
+  Future<void> _persistGroups() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+        _groupsKey, _groups.map((group) => group.encode()).toList());
+  }
+
   /// 拖拽排序后写回。
   Future<void> reorder(int oldIndex, int newIndex) async {
     final list = [..._rooms];
@@ -208,5 +283,21 @@ class FollowStore extends ChangeNotifier {
     _rooms = list;
     await _persist();
     notifyListeners();
+  }
+}
+
+/// 关注分组。
+class FollowGroup {
+  const FollowGroup({required this.id, required this.name});
+
+  final String id;
+  final String name;
+
+  String encode() => '$id|$name';
+
+  static FollowGroup? decode(String raw) {
+    final parts = raw.split('|');
+    if (parts.length < 2 || parts[0].isEmpty) return null;
+    return FollowGroup(id: parts[0], name: parts[1]);
   }
 }
