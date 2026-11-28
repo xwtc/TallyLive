@@ -52,6 +52,9 @@ class BilibiliDanmakuClient implements DanmakuClient {
   /// 连续 auth 被拒次数：用于把退避拉长，避免快速重连被上游限流。
   int _authFailures = 0;
 
+  /// 本次连接是否已通过 auth（用于区分被拒绝与连上后被断）。
+  bool _authOk = false;
+
   /// 取 token 被风控后置位：重连间隔拉长到 60s，别继续打上游。
   bool _tokenBlocked = false;
 
@@ -252,6 +255,7 @@ class BilibiliDanmakuClient implements DanmakuClient {
       return;
     }
     _socket = socket;
+    _authOk = false;
 
     // 发 auth（参数与 DTV 的 Go 实现保持一致：不带 buvid）
     // 没有 token 时不带 key 字段（blivedm 实测可行）
@@ -281,15 +285,18 @@ class BilibiliDanmakuClient implements DanmakuClient {
         if (!_stopped) _scheduleReconnect(error);
       },
       onDone: () {
-        if (!_stopped) {
-          _scheduleReconnect(const _DanmakuConnectError('连接被关闭'));
+        if (_stopped) return;
+        // 认证还没通过就被关 → 服务端拒绝了这次 auth（最常见是 token 失效）
+        if (!_authOk) {
+          _emitError('B站弹幕连接被服务端关闭（认证未通过）');
         }
+        _scheduleReconnect(const _DanmakuConnectError('连接被关闭'));
       },
       cancelOnError: true,
     );
 
     _resetWatchdog();
-    stage.value = '已连接 $host，等待认证…';
+    stage.value = '已连接 $host，等待认证（room=$realRoomId protover=$_protover token=${token.length}B）…';
     if (!_connected.isClosed) _connected.add(true);
   }
 
@@ -401,21 +408,43 @@ class BilibiliDanmakuClient implements DanmakuClient {
   }
 
   void _handleAuthReply(Uint8List body) {
-    if (body.isEmpty) return;
+    if (body.isEmpty) {
+      stage.value = '认证回执为空，连接可能被拒';
+      return;
+    }
+    // 回执有两种形态：新版本是 JSON {"code":0}，老版本是 4 字节 int32。
+    // 两种都认，认不出来就把原文报出来（否则只能看到"反复重连"）。
+    int? code;
     try {
       final reply = jsonDecode(utf8.decode(body, allowMalformed: true));
-      final code = (reply is Map) ? reply['code'] : null;
-      if (code != null && code != 0) {
-        // auth 被拒：不直接停止（否则圆点会一直黄），
-        // 计入失败次数后按更长的退避重连。
-        _authFailures++;
-        stage.value = '认证被拒（code=$code）';
-        _scheduleReconnect(_DanmakuConnectError('auth 被拒 code=$code'));
-      } else {
-        _authFailures = 0;
-        stage.value = '认证成功，等待弹幕数据…';
+      if (reply is Map) {
+        final raw = reply['code'];
+        if (raw is num) code = raw.toInt();
       }
-    } catch (_) {}
+    } catch (_) {
+      if (body.length >= 4) {
+        code = ByteData.view(body.buffer, body.offsetInBytes, body.length)
+            .getInt32(0, Endian.big);
+      }
+    }
+
+    if (code == null) {
+      stage.value = '认证回执无法识别（${body.length}B）';
+      _emitError('认证回执无法识别：${utf8.decode(body, allowMalformed: true)}');
+      return;
+    }
+    if (code != 0) {
+      // auth 被拒：不直接停止（否则圆点会一直黄），
+      // 计入失败次数后按更长的退避重连。
+      _authFailures++;
+      stage.value = '认证被拒（code=$code）';
+      _emitError('B站弹幕认证被拒（code=$code）');
+      _scheduleReconnect(_DanmakuConnectError('auth 被拒 code=$code'));
+      return;
+    }
+    _authFailures = 0;
+    _authOk = true;
+    stage.value = '认证成功，等待弹幕数据…';
   }
 
   /// 处理 op=5 的通知帧。
