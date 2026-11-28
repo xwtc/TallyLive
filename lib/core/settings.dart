@@ -128,7 +128,7 @@ class AppSettings extends ChangeNotifier {
   }
 
   Future<void> setDanmakuArea(double value) async {
-    _danmakuArea = value.clamp(0.25, 1.0).toDouble();
+    _danmakuArea = value.clamp(0.10, 1.0).toDouble();
     notifyListeners();
     await _save();
   }

@@ -39,6 +39,6 @@ void main() {
     expect(TallyRadius.card, 12);
     expect(TallyRadius.pill, 999);
     expect(TallySize.navbar, 64);
-    expect(TallySize.sidebar, 224);
+    expect(TallySize.sidebar, 240);
   });
 }

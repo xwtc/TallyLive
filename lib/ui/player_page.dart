@@ -756,7 +756,7 @@ class _AutoHide extends StatelessWidget {
 ///
 /// 参数范围与默认值对齐 DTV 的 `danmuSettings.ts`：
 /// 字号 14–30（步 2）、不透明度 0.2–1（步 0.05）、
-/// 存活时间 5–20s（步 0.5）、显示区域 0.25/0.5/0.75/1。
+/// 存活时间 5–20s（步 0.5）、显示区域 10%–100%（步 5%，比 DTV 的 4 档更细）。
 ///
 /// 这是 DTV 的做法：设置是**播放页的内联控件**，不做独立设置页
 /// （之前那版单独做了设置页，和这里的弹幕设置重复，已删除）。
@@ -822,12 +822,15 @@ class DanmakuSettingsSheet extends StatelessWidget {
                   suffix: '${settings.danmakuDuration.toStringAsFixed(1)}s',
                   onChanged: settings.setDanmakuDuration,
                 ),
+                // 显示区域：DTV 只给 0.25/0.5/0.75/1 四档，跨度太粗
+                //（25% 一跳，用户没法微调到"刚好避开字幕"）。
+                // 这里改成 10%~100%、每 5% 一档（19 档），保留整数百分比更直观。
                 _SettingSlider(
                   label: '显示区域',
                   value: settings.danmakuArea,
-                  min: 0.25,
+                  min: 0.10,
                   max: 1,
-                  divisions: 3,
+                  divisions: 18,
                   suffix: '${(settings.danmakuArea * 100).round()}%',
                   onChanged: settings.setDanmakuArea,
                 ),
