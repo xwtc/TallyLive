@@ -282,8 +282,8 @@ class LanSync {
   /// 返回本机可被访问的地址列表；无可用网卡时返回空。
   static Future<List<String>> startServer() async {
     if (_server != null) {
-      return _localIPv4Addresses()
-          .then((ips) => [for (final ip in ips) 'http://$ip:$port$httpPath']);
+      final ips = await _localIPv4Addresses();
+      return [for (final ip in ips) 'http://$ip:$port$httpPath'];
     }
     try {
       _server = await HttpServer.bind(InternetAddress.anyIPv4, port);

@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:tallylive/core/feed_ui.dart';
 import 'package:tallylive/core/follows.dart';
-import 'package:tallylive/core/models.dart';
 import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/ui/components/atoms.dart';
 import 'package:tallylive/ui/components/ring_progress.dart';
 import 'package:tallylive/ui/components/toast.dart';
-import 'package:tallylive/ui/components/login_sheet.dart';
 import 'package:tallylive/ui/theme.dart';
 
 /// 左侧关注栏（对齐 DTV 的 FollowsList + Sidebar）。
@@ -454,13 +452,11 @@ class _SideAction extends StatefulWidget {
     required this.icon,
     required this.tooltip,
     this.onTap,
-    this.busy = false,
   });
 
   final IconData? icon;
   final String tooltip;
   final VoidCallback? onTap;
-  final bool busy;
 
   @override
   State<_SideAction> createState() => _SideActionState();
@@ -492,271 +488,13 @@ class _SideActionState extends State<_SideAction> {
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(6),
             ),
-            child: widget.busy
-                ? const Padding(
-                    padding: EdgeInsets.all(7),
-                    child: CircularProgressIndicator(
-                      strokeWidth: 1.6,
-                      color: TallyColors.signalBlue,
-                    ),
-                  )
-                : Icon(
-                    widget.icon,
-                    size: 15,
-                    color: _hovered && widget.onTap != null
-                        ? TallyColors.textPrimary
-                        : TallyColors.textTertiary,
-                  ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 刷新按钮：刷新中显示「自转图标 + 外圈进度环」。
-///
-/// 对齐 DTV：图标照常转圈，圆环的弧长表示「已刷新 / 总数」。
-class _RefreshAction extends StatefulWidget {
-  const _RefreshAction({
-    required this.refreshing,
-    required this.progress,
-    required this.done,
-    required this.total,
-    required this.onTap,
-  });
-
-  final bool refreshing;
-  final double progress;
-  final int done;
-  final int total;
-  final VoidCallback? onTap;
-
-  @override
-  State<_RefreshAction> createState() => _RefreshActionState();
-}
-
-class _RefreshActionState extends State<_RefreshAction> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final tooltip = widget.refreshing
-        ? (widget.total > 0
-            ? '正在刷新 ${widget.done}/${widget.total}'
-            : '正在刷新…')
-        : '刷新关注状态';
-
-    return Tooltip(
-      message: tooltip,
-      waitDuration: const Duration(milliseconds: 500),
-      child: MouseRegion(
-        cursor: widget.onTap == null
-            ? SystemMouseCursors.basic
-            : SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: Container(
-            width: 28,
-            height: 28,
-            margin: const EdgeInsets.symmetric(horizontal: 1),
-            decoration: BoxDecoration(
+            child: Icon(
+              widget.icon,
+              size: 15,
               color: _hovered && widget.onTap != null
-                  ? TallyColors.raised
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(6),
+                  ? TallyColors.textPrimary
+                  : TallyColors.textTertiary,
             ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                // 外圈进度环（只在刷新中或已有进度时画）
-                if (widget.refreshing || widget.progress > 0)
-                  RingProgress(
-                    value: widget.progress,
-                    size: 26,
-                    stroke: 2,
-                  ),
-                widget.refreshing
-                    ? const SpinningIcon(
-                        icon: Icons.rotate_right,
-                        size: 13,
-                        color: TallyColors.signalBlue,
-                      )
-                    : Icon(
-                        Icons.refresh,
-                        size: 15,
-                        color: _hovered && widget.onTap != null
-                            ? TallyColors.textPrimary
-                            : TallyColors.textTertiary,
-                      ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 关注栏条目。
-class _SidebarTile extends StatefulWidget {
-  const _SidebarTile({
-    required this.room,
-    required this.collapsed,
-    required this.onTap,
-    required this.onContextMenu,
-  });
-
-  final FollowRoom room;
-  final bool collapsed;
-  final VoidCallback onTap;
-  final VoidCallback onContextMenu;
-
-  @override
-  State<_SidebarTile> createState() => _SidebarTileState();
-}
-
-class _SidebarTileState extends State<_SidebarTile> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final room = widget.room;
-    final active = PlayerSession.instance.target?.key == room.key;
-
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        onSecondaryTap: widget.onContextMenu,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 90),
-          height: 52,
-          margin: const EdgeInsets.symmetric(
-              horizontal: TallySpace.sm, vertical: 1),
-          padding: EdgeInsets.symmetric(
-              horizontal: widget.collapsed ? 0 : TallySpace.sm),
-          decoration: BoxDecoration(
-            color: active
-                ? TallyColors.raised
-                : (_hovered ? TallyColors.raised : Colors.transparent),
-            borderRadius: BorderRadius.circular(TallyRadius.card),
-            border: Border.all(
-              color: active ? TallyColors.signalBlue : Colors.transparent,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: widget.collapsed
-                ? MainAxisAlignment.center
-                : MainAxisAlignment.start,
-            children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  AvatarBox(
-                    url: room.avatar,
-                    fallbackText: room.nickname,
-                    size: 30,
-                  ),
-                  // 在线状态点：在播绿、未播灰（12px，带深色描边压在头像上）
-                  Positioned(
-                    right: -1,
-                    bottom: -1,
-                    child: _LiveDot(on: room.isLive),
-                  ),
-                ],
-              ),
-              if (!widget.collapsed) ...[
-                const SizedBox(width: TallySpace.sm),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        room.nickname.isEmpty ? room.roomId : room.nickname,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: room.isLive
-                              ? TallyColors.textPrimary
-                              : TallyColors.textSecondary,
-                        ),
-                      ),
-                      if (room.title.isNotEmpty)
-                        Text(
-                          room.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TallyType.meta,
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 在线状态圆点（对齐 DTV 的 `.liveDotOn` / `.liveDotOff`）。
-class _LiveDot extends StatelessWidget {
-  const _LiveDot({required this.on});
-
-  final bool on;
-
-  static const Color _onColor = Color(0xFF10B981);
-  static const Color _offColor = Color(0xFF475569);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 12,
-      height: 12,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: on ? _onColor : _offColor,
-        // 压在头像上要描一圈底色，否则边界糊在一起
-        border: Border.all(color: TallyColors.surface, width: 2),
-      ),
-    );
-  }
-}
-
-/// 分组标题右侧的小图标（删除分组等）。
-class _MiniAction extends StatelessWidget {
-  const _MiniAction({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: onTap,
-          child: SizedBox(
-            width: 18,
-            height: 18,
-            child: Icon(icon, size: 12, color: TallyColors.textTertiary),
-          ),
         ),
       ),
     );
