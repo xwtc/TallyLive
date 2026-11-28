@@ -45,6 +45,9 @@ class _DanmuPanelState extends State<DanmuPanel> {
   /// 暂停跟随后累计的未读条数。
   int _pending = 0;
 
+  /// 正在由程序自身滚动（避免把自己的滚动当成用户上翻）。
+  bool _autoScrolling = false;
+
   @override
   void initState() {
     super.initState();
@@ -79,14 +82,23 @@ class _DanmuPanelState extends State<DanmuPanel> {
         }
         if (!_followBottom) _pending++;
       });
+      // 跟随底部时用 animateTo 而不是 jumpTo：新弹幕是平滑滚上来的，
+      // 视觉上像"自动往下翻"，不会一卡一卡地跳。
       if (_followBottom) _scrollToBottomSoon();
     });
   }
 
+  /// 用户主动滚动时暂停跟随，回到底部附近才恢复。
+  ///
+  /// 阈值给 48px（不是 0）：鼠标滚轮/触控板惯性常常停在离底一点点的地方，
+  /// 如果要求精确到底才恢复，用户会觉得"怎么不动了"。
   void _onScroll() {
     if (!_scroll.hasClients) return;
+    // 程序自己触发的滚动不算用户操作
+    if (_autoScrolling) return;
     final atBottom =
-        _scroll.position.maxScrollExtent - _scroll.position.pixels < 24;
+        _scroll.position.maxScrollExtent - _scroll.position.pixels < 48;
+    // 只有「用户滚动」才改变跟随状态；向上翻立即停，滑回底部自动恢复。
     if (atBottom != _followBottom) {
       setState(() {
         _followBottom = atBottom;
@@ -98,13 +110,34 @@ class _DanmuPanelState extends State<DanmuPanel> {
   void _scrollToBottomSoon() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scroll.hasClients) return;
-      _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      final target = _scroll.position.maxScrollExtent;
+      if ((target - _scroll.position.pixels).abs() < 1) return;
+      _autoScrolling = true;
+      _scroll
+          .animateTo(
+            target,
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+          )
+          .whenComplete(() => _autoScrolling = false);
     });
   }
 
+  /// 点「新弹幕 N」：立刻回底并恢复自动跟随。
   void _jumpToBottom() {
-    setState(() => _pending = 0);
-    _scrollToBottomSoon();
+    if (!_scroll.hasClients) return;
+    setState(() {
+      _pending = 0;
+      _followBottom = true;
+    });
+    _autoScrolling = true;
+    _scroll
+        .animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        )
+        .whenComplete(() => _autoScrolling = false);
   }
 
   @override
