@@ -44,3 +44,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/huya_categories.json
+    - assets/douyin_categories.json

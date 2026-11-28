@@ -1,5 +1,6 @@
 import 'package:tallylive/core/models.dart';
 import 'package:tallylive/platforms/bilibili/bilibili_client.dart';
+import 'package:tallylive/platforms/douyin/douyin_client.dart';
 import 'package:tallylive/platforms/douyu/douyu_client.dart';
 import 'package:tallylive/platforms/huya/huya_client.dart';
 import 'package:tallylive/platforms/platform_client.dart';
@@ -52,6 +53,7 @@ class PlatformLiveRepository implements LiveRepository {
     LivePlatform.bilibili: BilibiliClient(),
     LivePlatform.douyu: DouyuClient(),
     LivePlatform.huya: HuyaClient(),
+    LivePlatform.douyin: DouyinClient(),
   };
 
   /// 已实现列表类接口的平台（顺序即 UI 展示顺序）。
@@ -60,6 +62,7 @@ class PlatformLiveRepository implements LiveRepository {
         LivePlatform.bilibili,
         LivePlatform.douyu,
         LivePlatform.huya,
+        LivePlatform.douyin,
       ];
 
   PlatformClient _client(LivePlatform platform) {
