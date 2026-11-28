@@ -22,9 +22,8 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    // 标题已移到壳层导航栏（AppShell），本页面只负责内容区
-    expect(find.text('正在直播'), findsOneWidget);
-    expect(find.text('平台精选'), findsOneWidget);
+    // 「正在直播」「平台精选」两行标题已按要求去掉，
+    // 标题本身在壳层导航栏（AppShell），本页面只负责分区栏与内容
     // 分区栏：一级分组 + 二级分区
     expect(find.text('网游'), findsWidgets);
     expect(find.text('英雄联盟'), findsWidgets);
