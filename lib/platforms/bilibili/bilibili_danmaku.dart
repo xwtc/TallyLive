@@ -42,6 +42,9 @@ class BilibiliDanmakuClient implements DanmakuClient {
 
   /// 播放页已知的真实房间号（省掉一次 room get_info）。
   String _realRoomId = '';
+
+  /// 降级原因（getDanmuInfo 被风控时记录，便于界面提示）。
+  String? _lastFallbackReason;
   int _retry = 0;
 
   /// 连续 auth 被拒次数：用于把退避拉长，避免快速重连被上游限流。
@@ -67,6 +70,15 @@ class BilibiliDanmakuClient implements DanmakuClient {
   /// 官方前端已用 3（brotli），所以下面**同时保留** brotli 解码能力——
   /// 万一服务端按 3 下发，我们也能解，不会整帧丢弃。
   static const int _protover = 2;
+
+  /// 兜底弹幕服务器（对齐 blivedm 的 DEFAULT_DANMAKU_SERVER_LIST）。
+  ///
+  /// `getDanmuInfo` 可能被风控（实测返回 -352，本机 curl 同样如此），
+  /// 此时直接连这个公开域名、auth 里**不带 key** 也能收到弹幕
+  /// —— 这是 blivedm 验证过的降级路径。
+  static const List<String> _fallbackHosts = [
+    'broadcastlv.chat.bilibili.com',
+  ];
 
   @override
   Stream<DanmakuMessage> get messages => _messages.stream;
@@ -129,18 +141,33 @@ class BilibiliDanmakuClient implements DanmakuClient {
         final room = await _client.fetchRoomInfo(_roomId);
         realRoomId = room.roomId;
       }
-      final serverInfo = await _client.fetchDanmuInfo(realRoomId);
-      if (serverInfo.token.isEmpty || serverInfo.hosts.isEmpty) {
-        throw const _DanmakuConnectError('没有可用的弹幕服务器');
+      // 拿不到 token 不是死路：getDanmuInfo 被风控时退回公开服务器、不带 key。
+      var token = '';
+      var hosts = _fallbackHosts;
+      String? fetchError;
+      try {
+        final serverInfo = await _client.fetchDanmuInfo(realRoomId);
+        if (serverInfo.token.isNotEmpty && serverInfo.hosts.isNotEmpty) {
+          token = serverInfo.token;
+          hosts = serverInfo.hosts;
+        } else {
+          fetchError = 'getDanmuInfo 未返回 token';
+        }
+      } catch (error) {
+        // -352 风控等：降级到默认服务器
+        fetchError = error.toString();
       }
       if (_stopped) return;
+      if (token.isEmpty && fetchError != null) {
+        _lastFallbackReason = fetchError;
+      }
 
       // 2. 依次尝试各域名
       Object? lastError;
-      for (final host in serverInfo.hosts) {
+      for (final host in hosts) {
         if (_stopped) return;
         try {
-          await _openSocket(host, realRoomId, serverInfo.token);
+          await _openSocket(host, realRoomId, token);
           // 连上就先算成功，剩余错误交给 readLoop 之后的退避
           _retry = 0;
           return;
@@ -180,13 +207,14 @@ class BilibiliDanmakuClient implements DanmakuClient {
     _socket = socket;
 
     // 发 auth（参数与 DTV 的 Go 实现保持一致：不带 buvid）
+    // 没有 token 时不带 key 字段（blivedm 实测可行）
     final auth = jsonEncode({
       'uid': 0,
       'roomid': int.tryParse(realRoomId) ?? 0,
       'protover': _protover,
       'platform': 'web',
       'type': 2,
-      'key': token,
+      if (token.isNotEmpty) 'key': token,
     });
     socket.add(encodePacket(_opAuth, utf8.encode(auth)));
 
