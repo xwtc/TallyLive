@@ -273,7 +273,7 @@ class _PlayerPageState extends State<PlayerPage> {
               Positioned(
                 right: 0,
                 top: 0,
-                bottom: 0,
+                bottom: 72,
                 child: DanmuPanel(
                   stream: _danmaku?.messages ??
                       Stream<DanmakuMessage>.empty(),

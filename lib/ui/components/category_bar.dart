@@ -402,8 +402,16 @@ class _CategoryBarState extends State<CategoryBar> {
   }
 
   void _closePanel() {
-    _entry?.remove();
+    // OverlayEntry 被重复 remove 会抛异常（切分区时 didUpdate 与点击遮罩
+    // 可能同时触发），这里做幂等保护。
+    final entry = _entry;
     _entry = null;
+    if (entry == null) return;
+    try {
+      entry.remove();
+    } catch (_) {
+      // 已被移除（overlay 随页面销毁），忽略
+    }
   }
 
   /// 「全部」浮层面板（对齐 DTV 的 CategoryBar 浮层）：

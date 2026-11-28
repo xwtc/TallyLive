@@ -187,6 +187,23 @@ class _DanmuPanelState extends State<DanmuPanel> {
   }
 }
 
+/// 把 `#RRGGBB` 解析成可读颜色；太暗或格式不对返回 null（回退主文字色）。
+///
+/// 夜间背景上纯黑/深蓝这类颜色几乎看不见，所以做亮度下限。
+Color? _readableColor(String? raw) {
+  if (raw == null) return null;
+  final text = raw.trim();
+  if (text.length != 7 || !text.startsWith('#')) return null;
+  final value = int.tryParse(text.substring(1), radix: 16);
+  if (value == null) return null;
+  final r = (value >> 16) & 0xFF;
+  final g = (value >> 8) & 0xFF;
+  final b = value & 0xFF;
+  final luma = 0.299 * r + 0.587 * g + 0.114 * b;
+  if (luma < 70) return null;
+  return Color(0xFF000000 | value);
+}
+
 /// 单条弹幕：`Lv.x 昵称：内容`，系统消息弱化。
 class _DanmuRow extends StatelessWidget {
   const _DanmuRow({required this.message});
@@ -224,9 +241,10 @@ class _DanmuRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12.5,
                 height: 1.35,
+                // 彩蛋色的弹幕用平台下发的颜色；深色（看不清）或未下发时用主文字色
                 color: isSystem
                     ? TallyColors.textTertiary
-                    : TallyColors.textPrimary,
+                    : (_readableColor(message.color) ?? TallyColors.textPrimary),
               ),
             ),
           ],
