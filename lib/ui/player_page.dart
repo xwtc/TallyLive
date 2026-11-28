@@ -879,8 +879,6 @@ class _PlayerPageState extends State<PlayerPage> {
       },
     );
   }
-    return value.toString();
-  }
 }
 
 /// 自动隐藏容器：显隐时淡入淡出 + 轻微位移，且完全显示时不拦截点击。
