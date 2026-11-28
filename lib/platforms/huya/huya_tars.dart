@@ -120,7 +120,7 @@ class TarsWriter {
     writeInt32(0, 0);
   }
 
-  /// map<string, bytes>，只有一个键值对（WUP 的 UniAttribute 就是这种）。
+  /// `map<string, bytes>`，只有一个键值对（WUP 的 UniAttribute 就是这种）。
   void writeBytesMap(int tag, String key, List<int> value) {
     _putHead(tag, TarsTypes.map);
     writeInt32(0, 1);

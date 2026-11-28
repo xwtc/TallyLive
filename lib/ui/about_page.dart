@@ -144,45 +144,11 @@ class _Card extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: TallyColors.hairline),
       ),
-      child: Column(children: children),
-    );
-  }
-}
-
-class _KV extends StatelessWidget {
-  const _KV(this.key_, this.value);
-
-  final String key_;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 72,
-            child: Text(
-              key_,
-              style: const TextStyle(
-                color: TallyColors.textTertiary,
-                fontSize: 13,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                color: TallyColors.textSecondary,
-                fontSize: 13,
-                height: 1.5,
-              ),
-            ),
-          ),
-        ],
+      // ListTile 需要在 Material 上绘制背景与水波纹；外层 Container 有底色，
+      // 不插一层透明的 Material 会触发 "background color may be invisible" 断言。
+      child: Material(
+        color: Colors.transparent,
+        child: Column(children: children),
       ),
     );
   }

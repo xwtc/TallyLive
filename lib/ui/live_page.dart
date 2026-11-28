@@ -197,7 +197,7 @@ class _LivePageState extends State<LivePage> {
           ),
           const SliverToBoxAdapter(
             child: SizedBox(
-              height: 132,
+              height: 160,
               child: EmptyState(
                 message: '还没有关注的直播间\n可以先去分区里找找',
                 icon: Icons.star_border,
