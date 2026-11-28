@@ -180,7 +180,6 @@ class _StreamerCardState extends State<StreamerCard> {
       clipBehavior: Clip.hardEdge,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AvatarBox(
             url: streamer.avatar,
