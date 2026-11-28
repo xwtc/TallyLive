@@ -54,6 +54,7 @@ class FakeLiveRepository implements LiveRepository {
   Future<List<SearchHit>> search({
     required LivePlatform platform,
     required String keyword,
+    int page = 1,
   }) async =>
       const [];
 
