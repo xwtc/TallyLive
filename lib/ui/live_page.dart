@@ -40,6 +40,7 @@ class _LivePageState extends State<LivePage> {
   final ScrollController _categoryScroll = ScrollController();
 
   List<CategoryGroup> _groups = const [];
+  String? _groupId;
   String? _categoryId;
 
   final List<Streamer> _items = [];
@@ -96,12 +97,36 @@ class _LivePageState extends State<LivePage> {
     try {
       final groups = await _repo.fetchCategories(_platform);
       if (!mounted) return;
-      final firstCategory = groups.isNotEmpty && groups.first.categories.isNotEmpty
-          ? groups.first.categories.first.id
-          : null;
+
+      // 保留用户已选的分区：只有当前选择不在新分区表里时才退回默认值。
+      // （之前这里无条件重置成第一个分区，导致「切分区无效」。）
+      var groupId = _groupId;
+      var categoryId = _categoryId;
+
+      final groupExists =
+          groups.any((group) => group.id == groupId && group.categories.isNotEmpty);
+      if (!groupExists) {
+        groupId = groups.isNotEmpty ? groups.first.id : null;
+      }
+      final currentGroup = groups.firstWhere(
+        (group) => group.id == groupId,
+        orElse: () => groups.isEmpty
+            ? const CategoryGroup(id: '', name: '', categories: [])
+            : groups.first,
+      );
+      final categoryExists = currentGroup.categories.any(
+        (category) => category.id == categoryId,
+      );
+      if (!categoryExists) {
+        categoryId = currentGroup.categories.isNotEmpty
+            ? currentGroup.categories.first.id
+            : null;
+      }
+
       setState(() {
         _groups = groups;
-        _categoryId = firstCategory;
+        _groupId = groupId;
+        _categoryId = categoryId;
       });
       await _loadFirstPage();
     } catch (error) {
@@ -176,8 +201,24 @@ class _LivePageState extends State<LivePage> {
 
   void _selectCategory(String categoryId) {
     if (categoryId == _categoryId) return;
+    // 只换分区、不重新拉分区表（拉表会把选择重置掉，而且没必要）
     setState(() => _categoryId = categoryId);
-    _bootstrap(keepContent: true);
+    _loadFirstPage();
+  }
+
+  /// 切一级分组：同时把二级分区切到该组的第一个。
+  void _selectGroup(String groupId) {
+    if (groupId == _groupId) return;
+    final group = _groups.firstWhere(
+      (item) => item.id == groupId,
+      orElse: () => const CategoryGroup(id: '', name: '', categories: []),
+    );
+    setState(() {
+      _groupId = groupId;
+      _categoryId =
+          group.categories.isNotEmpty ? group.categories.first.id : null;
+    });
+    _loadFirstPage();
   }
 
   Future<void> _openStreamer(Streamer streamer) async {
@@ -195,13 +236,17 @@ class _LivePageState extends State<LivePage> {
     );
   }
 
-  /// 当前可切换的分区（把分组里的二级分区扁平化）。
-  List<Category> get _flatCategories {
-    final out = <Category>[];
-    for (final group in _groups) {
-      out.addAll(group.categories);
-    }
-    return out;
+  /// 当前一级分组下的二级分区。
+  ///
+  /// 之前是把全部分组的二级分区"拍平"成一行（B站 400+ 个），既丢了分组信息，
+  /// 又长到没法用；现在改成「一级分组一行 + 该组分区一行」。
+  List<Category> get _currentGroupCategories {
+    if (_groups.isEmpty) return const [];
+    final group = _groups.firstWhere(
+      (item) => item.id == _groupId,
+      orElse: () => _groups.first,
+    );
+    return group.categories;
   }
 
   @override
@@ -293,37 +338,83 @@ class _LivePageState extends State<LivePage> {
       ),
     );
   }
-  /// 分区横滑条。加载中显示骨架，避免出现又消失的布局跳动。
+  /// 分区导航：两行。
+  ///
+  /// 第一行 = 一级分组（网游/手游/单机…），第二行 = 该组下的二级分区。
+  /// 两行各自横滑，信息完整且不需要翻页；相比 DTV 的三行堆叠省一行高度。
   Widget _buildCategoryBar() {
-    final categories = _flatCategories;
+    if (_bootCategoriesPending) {
+      return SizedBox(
+        height: 76,
+        child: Column(
+          children: [
+            _categorySkeletonRow(height: 32),
+            _categorySkeletonRow(height: 36),
+          ],
+        ),
+      );
+    }
+
+    final categories = _currentGroupCategories;
+
+    return Column(
+      children: [
+        // 一级分组
+        SizedBox(
+          height: 38,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(
+                TallySpace.md, TallySpace.xs, TallySpace.md, 2),
+            itemCount: _groups.length,
+            separatorBuilder: (_, __) => const SizedBox(width: TallySpace.xs),
+            itemBuilder: (context, index) {
+              final group = _groups[index];
+              return _CategoryChip(
+                label: group.name,
+                selected: group.id == _groupId,
+                onTap: () => _selectGroup(group.id),
+                primary: true,
+              );
+            },
+          ),
+        ),
+        // 二级分区
+        SizedBox(
+          height: 38,
+          child: ListView.separated(
+            controller: _categoryScroll,
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(
+                TallySpace.md, 2, TallySpace.md, TallySpace.xs),
+            itemCount: categories.length,
+            separatorBuilder: (_, __) => const SizedBox(width: TallySpace.xs),
+            itemBuilder: (context, index) {
+              final category = categories[index];
+              return _CategoryChip(
+                label: category.name,
+                selected: category.id == _categoryId,
+                onTap: () => _selectCategory(category.id),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _categorySkeletonRow({required double height}) {
     return SizedBox(
-      height: 44,
-      child: _bootCategoriesPending
-          ? ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(
-                  horizontal: TallySpace.md, vertical: TallySpace.sm),
-              itemCount: 6,
-              separatorBuilder: (_, __) => const SizedBox(width: TallySpace.sm),
-              itemBuilder: (_, __) =>
-                  const SkeletonBox(width: 64, height: 24, radius: 12),
-            )
-          : ListView.separated(
-              controller: _categoryScroll,
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(
-                  horizontal: TallySpace.md, vertical: TallySpace.sm),
-              itemCount: categories.length,
-              separatorBuilder: (_, __) => const SizedBox(width: TallySpace.xs),
-              itemBuilder: (context, index) {
-                final category = categories[index];
-                return _CategoryChip(
-                  label: category.name,
-                  selected: category.id == _categoryId,
-                  onTap: () => _selectCategory(category.id),
-                );
-              },
-            ),
+      height: height,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(
+            horizontal: TallySpace.md, vertical: TallySpace.xs),
+        itemCount: 6,
+        separatorBuilder: (_, __) => const SizedBox(width: TallySpace.sm),
+        itemBuilder: (_, __) =>
+            const SkeletonBox(width: 64, height: 22, radius: 6),
+      ),
     );
   }
 
@@ -481,20 +572,43 @@ class Reveal extends StatelessWidget {
   }
 }
 
-/// 分区 chip（横滑条里的一个）。
+/// 分区 chip（一级分组与二级分区共用）。
+///
+/// 两级用不同视觉权重区分层级：
+/// - `primary`（一级分组）：无边框，未选中用次级文字色，选中才出现描边；
+/// - 二级分区：有 hairline 边框的"卡片"感，选中同样是 raised + 蓝描边。
 class _CategoryChip extends StatelessWidget {
   const _CategoryChip({
     required this.label,
     required this.selected,
     required this.onTap,
+    this.primary = false,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final bool primary;
 
   @override
   Widget build(BuildContext context) {
+    final BoxDecoration decoration;
+    if (selected) {
+      decoration = TallyDecor.selected;
+    } else if (primary) {
+      decoration = BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(TallyRadius.card),
+        border: Border.all(color: Colors.transparent),
+      );
+    } else {
+      decoration = BoxDecoration(
+        color: TallyColors.surface,
+        borderRadius: BorderRadius.circular(TallyRadius.card),
+        border: Border.all(color: TallyColors.hairline),
+      );
+    }
+
     return GestureDetector(
       onTap: onTap,
       child: MouseRegion(
@@ -504,18 +618,12 @@ class _CategoryChip extends StatelessWidget {
           height: 28,
           padding: const EdgeInsets.symmetric(horizontal: TallySpace.md),
           alignment: Alignment.center,
-          decoration: selected
-              ? TallyDecor.selected
-              : BoxDecoration(
-                  color: TallyColors.surface,
-                  borderRadius: BorderRadius.circular(TallyRadius.card),
-                  border: Border.all(color: TallyColors.hairline),
-                ),
+          decoration: decoration,
           child: Text(
             label,
             style: TextStyle(
-              fontSize: 12,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              fontSize: primary ? 13 : 12,
+              fontWeight: selected || primary ? FontWeight.w600 : FontWeight.w400,
               color: selected
                   ? TallyColors.textPrimary
                   : TallyColors.textSecondary,

@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:tallylive/core/danmaku.dart';
@@ -13,12 +15,17 @@ import 'package:tallylive/ui/theme.dart';
 
 /// 播放页。
 ///
-/// 结构上与 Simple Live 一致：`Stack` 里第一层是 media_kit 的 `Video`
-/// （底层是 libmpv，渲染进 Flutter 纹理），弹幕/控制条作为同级 widget 叠在上面
-/// —— 因为它们走同一个合成器，所以不存在 WebView 架构下「原生窗口遮住弹幕」的问题。
+/// 布局（对齐 DTV 的播放器形态，但不做进度条——直播没有索引）：
+/// ```
+/// Stack
+/// ├── 画面舞台：Center + AspectRatio（按视频实际宽高比 letterbox，随窗口自适应）
+/// │     ├── Video（libmpv 纹理）
+/// │     └── DanmakuOverlay（与画面同一矩形，天然压在画面之上）
+/// ├── 顶部信息条（自动隐藏）：返回 / LIVE / 昵称·标题 / 弹幕状态
+/// └── 底部控制条（自动隐藏）：播放暂停 / 音量 / 弹幕开关 / 清晰度 / 线路 / 刷新 / 全屏
+/// ```
 ///
-/// 当前阶段还没有接弹幕，等协议层补上 getDanmuInfo + WebSocket 后，
-/// 在这个 Stack 里插入 `DanmakuScreen` 即可。
+/// 控件自动隐藏：播放中静止 3.5 秒淡出，鼠标移动或点击画面重新出现。
 class PlayerPage extends StatefulWidget {
   const PlayerPage({
     super.key,
@@ -48,8 +55,20 @@ class _PlayerPageState extends State<PlayerPage> {
   bool? _danmakuOnline;
   StreamSubscription<bool>? _danmakuStatusSub;
 
-  /// 是否展开弹幕调试面板（长按标题栏切换）。
+  /// 是否展开弹幕调试面板（右键标题栏切换，仅诊断构建）。
   bool _showStats = false;
+
+  /* ---------------------------------------------------------- 控件显隐/播放态 */
+
+  bool _controlsVisible = true;
+  Timer? _hideTimer;
+
+  bool _playing = false;
+  double _volume = 100;
+  bool _muted = false;
+  double _volumeBeforeMute = 100;
+
+  bool _immersive = false;
 
   @override
   void initState() {
@@ -65,9 +84,75 @@ class _PlayerPageState extends State<PlayerPage> {
       if (!mounted) return;
       setState(() => _error = message);
     });
+    _player.stream.playing.listen((playing) {
+      if (!mounted) return;
+      setState(() => _playing = playing);
+      _scheduleHide();
+    });
+    _player.stream.volume.listen((volume) {
+      if (!mounted) return;
+      setState(() => _volume = volume);
+    });
 
     _openCurrent();
     _startDanmaku();
+    _scheduleHide();
+  }
+
+  /// 播放中自动隐藏控件；暂停时保持显示（否则暂停后无从操作）。
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    if (!_playing) {
+      if (mounted) setState(() => _controlsVisible = true);
+      return;
+    }
+    _hideTimer = Timer(const Duration(milliseconds: 3500), () {
+      if (!mounted) return;
+      setState(() => _controlsVisible = false);
+    });
+  }
+
+  void _showControls() {
+    if (!_controlsVisible) setState(() => _controlsVisible = true);
+    _scheduleHide();
+  }
+
+  void _toggleControls() {
+    setState(() => _controlsVisible = !_controlsVisible);
+    if (_controlsVisible) _scheduleHide();
+  }
+
+  Future<void> _togglePlay() async {
+    await _player.playOrPause();
+    _showControls();
+  }
+
+  Future<void> _toggleMute() async {
+    if (_muted) {
+      await _player.setVolume(_volumeBeforeMute <= 0 ? 100 : _volumeBeforeMute);
+      setState(() => _muted = false);
+    } else {
+      _volumeBeforeMute = _volume;
+      await _player.setVolume(0);
+      setState(() => _muted = true);
+    }
+    _showControls();
+  }
+
+  Future<void> _toggleFullscreen() async {
+    final isMobile = defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.android;
+    if (!isMobile) {
+      // 桌面端真正的窗口全屏需要窗口管理插件（本项目未引入），
+      // 这里退化成「沉浸模式」：隐藏控件，最大化由系统窗口按钮完成。
+      setState(() => _controlsVisible = false);
+      return;
+    }
+    _immersive = !_immersive;
+    await SystemChrome.setEnabledSystemUIMode(
+      _immersive ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+    );
+    setState(() {});
   }
 
   /// 启动弹幕。平台未接入时 _danmaku 为 null，UI 自动退化成无弹幕。
@@ -122,6 +207,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   @override
   void dispose() {
+    _hideTimer?.cancel();
     _danmakuStatusSub?.cancel();
     _danmaku?.dispose();
     _danmaku = null;
@@ -132,170 +218,314 @@ class _PlayerPageState extends State<PlayerPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: TallyColors.base,
-      body: SafeArea(
-        top: false,
-        bottom: false,
-        child: Column(
+      backgroundColor: Colors.black,
+      body: MouseRegion(
+        // 桌面端：鼠标一动就显示控件
+        onHover: (_) => _showControls(),
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            _buildTopBar(context),
-            ColoredBox(
-              color: Colors.black,
-              child: AspectRatio(
-                aspectRatio: 16 / 9,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    // 直播不需要进度条：media_kit 自带控件含可拖动的 seek bar，
-                    // 而 FLV/HLS 直播没有索引、拖了只会报 "force-seekable"。
-                    // 所以关掉内置控件，只保留点击画面播放/暂停。
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => _player.playOrPause(),
-                      child: Video(
-                        controller: _controller,
-                        controls: NoVideoControls,
-                      ),
-                    ),
-                    // 弹幕层：与 Video 同层，天然压在画面之上。
-                    // 样式与开关来自设置页，改动后立即生效。
-                    ListenableBuilder(
-                      listenable: AppSettings.instance,
-                      builder: (context, _) {
-                        final settings = AppSettings.instance;
-                        return DanmakuOverlay(
-                          stream: _danmaku?.messages ??
-                              Stream<DanmakuMessage>.empty(),
-                          enabled: settings.danmakuEnabled,
-                          fontSize: settings.danmakuFontSize,
-                          opacity: settings.danmakuOpacity,
-                          duration: settings.danmakuDuration,
-                          area: settings.danmakuArea,
-                        );
-                      },
-                    ),
-                    if (_error != null)
-                      Center(
-                        child: Container(
-                          margin: const EdgeInsets.all(16),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: TallyColors.raised.withValues(alpha: 0.92),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: TallyColors.hairline),
-                          ),
-                          child: Text(
-                            _error!,
-                            style: const TextStyle(
-                              color: TallyColors.tallyRed,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+            _buildStage(),
+            _buildTopOverlay(),
+            _buildControlBar(),
+            if (kDiagnosticsEnabled && _showStats)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 76,
+                child: _buildStatsPanel(),
               ),
-            ),
-            if (kDiagnosticsEnabled && _showStats) _buildStatsPanel(context),
-            Expanded(child: _buildInfo(context)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildTopBar(BuildContext context) {
-    return Container(
-      color: TallyColors.surface,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.arrow_back),
-            color: TallyColors.textPrimary,
-            tooltip: '返回',
-          ),
-          const SizedBox(width: 4),
-          if (widget.room.isLive)
-            Container(
-              margin: const EdgeInsets.only(right: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: TallyColors.tallyRed.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: const Text(
-                'LIVE',
-                style: TextStyle(
-                  color: TallyColors.tallyRed,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.8,
-                ),
-              ),
-            ),
-          Expanded(
-            // 右键标题栏切换弹幕调试面板（仅非 release 构建有效）。
-            // 用右键而不是长按：桌面端鼠标右键更顺手，也不会和触摸长按冲突。
-            child: GestureDetector(
+  /// 画面舞台：按视频真实宽高比 letterbox，随窗口尺寸自适应。
+  Widget _buildStage() {
+    final state = _player.state;
+    final width = state.width;
+    final height = state.height;
+    var aspect = 16 / 9;
+    if (width != null && height != null && width > 0 && height > 0) {
+      final ratio = width / height;
+      if (ratio.isFinite && ratio > 0.1 && ratio < 10) aspect = ratio;
+    }
+
+    return Center(
+      child: AspectRatio(
+        aspectRatio: aspect,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // 直播不需要进度条：media_kit 自带控件含可拖动 seek bar，
+            // 而 FLV/HLS 直播没有索引、拖了只会报 "force-seekable"。
+            GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onSecondaryTap: kDiagnosticsEnabled
-                  ? () => setState(() => _showStats = !_showStats)
-                  : null,
-              child: Text(
-                widget.room.title.isEmpty ? '房间 ${widget.room.roomId}' : widget.room.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: TallyColors.textPrimary,
-                  fontSize: 15,
-                ),
+              onTap: _toggleControls,
+              onDoubleTap: _toggleFullscreen,
+              child: Video(
+                controller: _controller,
+                controls: NoVideoControls,
               ),
             ),
+            // 弹幕层：与画面同一矩形，天然压在画面之上。
+            ListenableBuilder(
+              listenable: AppSettings.instance,
+              builder: (context, _) {
+                final settings = AppSettings.instance;
+                return IgnorePointer(
+                  child: DanmakuOverlay(
+                    stream: _danmaku?.messages ?? Stream<DanmakuMessage>.empty(),
+                    enabled: settings.danmakuEnabled,
+                    fontSize: settings.danmakuFontSize,
+                    opacity: settings.danmakuOpacity,
+                    duration: settings.danmakuDuration,
+                    area: settings.danmakuArea,
+                  ),
+                );
+              },
+            ),
+            // 错误提示（不遮挡控件）
+            if (_error != null)
+              Positioned(
+                left: 16,
+                right: 16,
+                top: 16,
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: TallyColors.raised.withValues(alpha: 0.94),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: TallyColors.hairline),
+                  ),
+                  child: Text(
+                    _error!,
+                    style: const TextStyle(
+                      color: TallyColors.tallyRed,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /* --------------------------------------------------------------- 顶部信息条 */
+
+  Widget _buildTopOverlay() {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: _AutoHide(
+        visible: _controlsVisible,
+        alignment: Alignment.topCenter,
+        child: Container(
+          color: Colors.black.withValues(alpha: 0.55),
+          padding: const EdgeInsets.symmetric(
+              horizontal: TallySpace.sm, vertical: TallySpace.xs),
+          child: Row(
+            children: [
+              IconButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.arrow_back, size: 20),
+                color: TallyColors.textPrimary,
+                tooltip: '返回',
+              ),
+              if (widget.room.isLive) ...[
+                Container(
+                  margin: const EdgeInsets.only(right: TallySpace.sm),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: TallyColors.tallyRed.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(TallyRadius.badge),
+                  ),
+                  child: const Text('LIVE', style: TallyType.liveBadge),
+                ),
+              ],
+              Expanded(
+                // 右键标题切换弹幕调试面板（仅非 release 构建有效）
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onSecondaryTap: kDiagnosticsEnabled
+                      ? () => setState(() => _showStats = !_showStats)
+                      : null,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        widget.room.title.isEmpty
+                            ? '房间 ${widget.room.roomId}'
+                            : widget.room.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TallyType.nickname.copyWith(fontSize: 14),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        [
+                          widget.room.platform.label,
+                          if (widget.room.nickname.isNotEmpty) widget.room.nickname,
+                          if (widget.room.category.isNotEmpty) widget.room.category,
+                          if (widget.room.online > 0)
+                            '${_formatCount(widget.room.online)} 人气',
+                        ].join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TallyType.meta,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              // 弹幕连接状态圆点（诊断用，release 剔除）
+              if (kDiagnosticsEnabled && _danmakuOnline != null)
+                Tooltip(
+                  message: _danmakuOnline! ? '弹幕已连接' : '弹幕重连中',
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    margin: const EdgeInsets.symmetric(horizontal: 6),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _danmakuOnline!
+                          ? TallyColors.signalBlue
+                          : TallyColors.stateAmber,
+                    ),
+                  ),
+                ),
+            ],
           ),
-          // 弹幕连接状态圆点（**诊断用，release 构建剔除**）。
-          // 蓝点=已连接；琥珀点=重连中（此时弹幕会断续，属网络侧问题）。
-          if (kDiagnosticsEnabled && _danmakuOnline != null)
-            Tooltip(
-              message: _danmakuOnline! ? '弹幕已连接' : '弹幕重连中',
-              child: Container(
-                width: 8,
-                height: 8,
-                margin: const EdgeInsets.symmetric(horizontal: 6),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _danmakuOnline!
-                      ? TallyColors.signalBlue
-                      : const Color(0xFFC69233),
-                ),
+        ),
+      ),
+    );
+  }
+
+  /* --------------------------------------------------------------- 底部控制条 */
+
+  Widget _buildControlBar() {
+    final isMobile = defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.android;
+
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: _AutoHide(
+        visible: _controlsVisible,
+        alignment: Alignment.bottomCenter,
+        child: Container(
+          color: Colors.black.withValues(alpha: 0.62),
+          padding: const EdgeInsets.symmetric(
+              horizontal: TallySpace.sm, vertical: TallySpace.xs),
+          child: Row(
+            children: [
+              IconButton(
+                onPressed: _togglePlay,
+                icon: Icon(_playing ? Icons.pause : Icons.play_arrow, size: 22),
+                color: TallyColors.textPrimary,
+                tooltip: _playing ? '暂停' : '播放',
               ),
-            ),
-          // 弹幕开关（与设置页共用同一份状态）
-          ListenableBuilder(
-            listenable: AppSettings.instance,
-            builder: (context, _) {
-              final enabled = AppSettings.instance.danmakuEnabled;
-              return IconButton(
-                onPressed: () =>
-                    AppSettings.instance.setDanmakuEnabled(!enabled),
+              // 音量
+              IconButton(
+                onPressed: _toggleMute,
                 icon: Icon(
-                  enabled ? Icons.subtitles : Icons.subtitles_off,
-                  size: 18,
+                  _muted || _volume <= 0
+                      ? Icons.volume_off
+                      : (_volume < 50 ? Icons.volume_down : Icons.volume_up),
+                  size: 20,
                 ),
-                color: enabled
-                    ? TallyColors.textPrimary
-                    : TallyColors.textTertiary,
-                tooltip: enabled ? '关闭弹幕' : '开启弹幕',
-              );
-            },
+                color: TallyColors.textPrimary,
+                tooltip: '静音',
+              ),
+              SizedBox(
+                width: 88,
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 2,
+                    thumbShape:
+                        const RoundSliderThumbShape(enabledThumbRadius: 5),
+                    overlayShape:
+                        const RoundSliderOverlayShape(overlayRadius: 10),
+                  ),
+                  child: Slider(
+                    value: _volume.clamp(0, 100),
+                    max: 100,
+                    onChanged: (value) async {
+                      await _player.setVolume(value);
+                      if (value > 0 && _muted) setState(() => _muted = false);
+                      _showControls();
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(width: TallySpace.sm),
+              // 直播标识（代替进度条）
+              Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: TallyColors.tallyRed,
+                ),
+              ),
+              const SizedBox(width: 5),
+              const Text(
+                '直播中',
+                style: TextStyle(fontSize: 11, color: TallyColors.textSecondary),
+              ),
+              const Spacer(),
+              // 弹幕开关（与设置页共用状态）
+              ListenableBuilder(
+                listenable: AppSettings.instance,
+                builder: (context, _) {
+                  final enabled = AppSettings.instance.danmakuEnabled;
+                  return IconButton(
+                    onPressed: () {
+                      AppSettings.instance.setDanmakuEnabled(!enabled);
+                      _showControls();
+                    },
+                    icon: Icon(
+                      enabled ? Icons.subtitles : Icons.subtitles_off,
+                      size: 18,
+                    ),
+                    color: enabled
+                        ? TallyColors.textPrimary
+                        : TallyColors.textTertiary,
+                    tooltip: enabled ? '关闭弹幕' : '开启弹幕',
+                  );
+                },
+              ),
+              if (widget.lines.length > 1) _buildLineMenu(),
+              if (widget.variants.length > 1) _buildQualityMenu(),
+              IconButton(
+                onPressed: () {
+                  _openCurrent();
+                  _showControls();
+                },
+                icon: const Icon(Icons.refresh, size: 18),
+                color: TallyColors.textSecondary,
+                tooltip: '重新加载',
+              ),
+              if (isMobile)
+                IconButton(
+                  onPressed: _toggleFullscreen,
+                  icon: Icon(
+                    _immersive ? Icons.fullscreen_exit : Icons.fullscreen,
+                    size: 20,
+                  ),
+                  color: TallyColors.textPrimary,
+                  tooltip: '全屏',
+                ),
+            ],
           ),
-          // 线路选择：只在有真实多线路时显示。
-          if (widget.lines.length > 1) _buildLineMenu(),
-          // 清晰度选择
-          if (widget.variants.length > 1) _buildQualityMenu(),
-        ],
+        ),
       ),
     );
   }
@@ -327,7 +557,6 @@ class _PlayerPageState extends State<PlayerPage> {
                       style: const TextStyle(color: TallyColors.textPrimary),
                     ),
                   ),
-                  // 该线路在多少档位里可用，便于判断覆盖度。
                   Text(
                     '${widget.variants.where((v) => v.availableLineIds.contains(line.id)).length}档',
                     style: const TextStyle(
@@ -341,7 +570,7 @@ class _PlayerPageState extends State<PlayerPage> {
           )
           .toList(),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: TallySpace.sm),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -349,14 +578,11 @@ class _PlayerPageState extends State<PlayerPage> {
               current.label,
               style: const TextStyle(
                 color: TallyColors.textSecondary,
-                fontSize: 13,
+                fontSize: 12,
               ),
             ),
-            const Icon(
-              Icons.expand_more,
-              size: 16,
-              color: TallyColors.textSecondary,
-            ),
+            const Icon(Icons.expand_more,
+                size: 15, color: TallyColors.textSecondary),
           ],
         ),
       ),
@@ -389,7 +615,7 @@ class _PlayerPageState extends State<PlayerPage> {
           )
           .toList(),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: TallySpace.sm),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -397,94 +623,26 @@ class _PlayerPageState extends State<PlayerPage> {
               _variant.label,
               style: const TextStyle(
                 color: TallyColors.signalBlue,
-                fontSize: 13,
+                fontSize: 12,
               ),
             ),
-            const Icon(
-              Icons.expand_more,
-              size: 16,
-              color: TallyColors.signalBlue,
-            ),
+            const Icon(Icons.expand_more, size: 15, color: TallyColors.signalBlue),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildInfo(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text(
-          widget.room.title.isEmpty ? '房间 ${widget.room.roomId}' : widget.room.title,
-          style: const TextStyle(
-            color: TallyColors.textPrimary,
-            fontSize: 17,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            _chip(widget.room.platform.label),
-            const SizedBox(width: 8),
-            _chip('房间 ${widget.room.roomId}'),
-            if (widget.room.category.isNotEmpty) ...[
-              const SizedBox(width: 8),
-              _chip(widget.room.category),
-            ],
-            if (widget.room.online > 0) ...[
-              const SizedBox(width: 8),
-              _chip('${_formatCount(widget.room.online)} 人气'),
-            ],
-          ],
-        ),
-        if (widget.room.nickname.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Text(
-            widget.room.nickname,
-            style: const TextStyle(color: TallyColors.textSecondary, fontSize: 14),
-          ),
-        ],
-        const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: TallyColors.surface,
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: TallyColors.hairline),
-          ),
-          child: Text(
-            '当前：${_variant.label}（${_variant.format.toUpperCase()}）'
-            '${widget.lines.length > 1 ? ' · 线路 ${_currentLineLabel()}' : ''}\n'
-            '可切换 ${widget.variants.length} 个清晰度'
-            '${widget.lines.length > 1 ? '、${widget.lines.length} 条线路' : ''}。\n'
-            '弹幕将在下一阶段接入。',
-            style: const TextStyle(
-              color: TallyColors.textSecondary,
-              fontSize: 13,
-              height: 1.6,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// 弹幕管线调试面板。
-  ///
-  /// 用来回答「弹幕为什么比官方少」：链路每一环的数字都在这里。
-  /// 如果 `聊天 → 入队 → 已画` 守恒，说明客户端一条没丢，
-  /// 屏幕密度就是服务端给的全部。
-  Widget _buildStatsPanel(BuildContext context) {
+  /// 弹幕管线调试面板（仅诊断构建）。
+  Widget _buildStatsPanel() {
     return ListenableBuilder(
       listenable: DanmakuStats.instance,
       builder: (context, _) {
         final stats = DanmakuStats.instance;
         return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          color: TallyColors.raised,
+          color: TallyColors.raised.withValues(alpha: 0.94),
+          padding: const EdgeInsets.symmetric(
+              horizontal: TallySpace.md, vertical: TallySpace.sm),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -503,10 +661,8 @@ class _PlayerPageState extends State<PlayerPage> {
                     onTap: stats.reset,
                     child: const Text(
                       '重置',
-                      style: TextStyle(
-                        color: TallyColors.textTertiary,
-                        fontSize: 11,
-                      ),
+                      style:
+                          TextStyle(color: TallyColors.textTertiary, fontSize: 11),
                     ),
                   ),
                 ],
@@ -528,31 +684,42 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  String _currentLineLabel() {
-    for (final line in widget.lines) {
-      if (line.id == _lineId) return line.label;
-    }
-    return widget.lines.isNotEmpty ? widget.lines.first.label : '';
-  }
-
-  Widget _chip(String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: TallyColors.raised,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(color: TallyColors.textSecondary, fontSize: 12),
-      ),
-    );
-  }
-
   String _formatCount(int value) {
     if (value >= 10000) {
       return '${(value / 10000).toStringAsFixed(1)}万';
     }
     return value.toString();
+  }
+}
+
+/// 自动隐藏容器：显隐时淡入淡出 + 轻微位移，且完全显示时不拦截点击。
+class _AutoHide extends StatelessWidget {
+  const _AutoHide({
+    required this.visible,
+    required this.alignment,
+    required this.child,
+  });
+
+  final bool visible;
+  final Alignment alignment;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final isTop = alignment == Alignment.topCenter;
+    return IgnorePointer(
+      ignoring: !visible,
+      child: AnimatedOpacity(
+        opacity: visible ? 1 : 0,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        child: AnimatedSlide(
+          offset: visible ? Offset.zero : Offset(0, isTop ? -0.15 : 0.15),
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          child: child,
+        ),
+      ),
+    );
   }
 }
