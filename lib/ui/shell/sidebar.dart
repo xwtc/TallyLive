@@ -25,6 +25,10 @@ class Sidebar extends StatefulWidget {
 class _SidebarState extends State<Sidebar> {
   bool _collapsed = false;
 
+  /// 关注栏内搜索（对齐 DTV 的 FollowsList 搜索）。
+  final TextEditingController _search = TextEditingController();
+  String _keyword = '';
+
   @override
   void dispose() {
     _search.dispose();
@@ -109,7 +113,7 @@ class _SidebarState extends State<Sidebar> {
           if (!_collapsed) ...[
             const Text('关注', style: TallyType.sectionTitle),
             const SizedBox(width: TallySpace.sm),
-            Text('$count', style: TallyType.numberSmall.copyWith(
+            Text('$liveCount/$totalCount', style: TallyType.numberSmall.copyWith(
               color: TallyColors.textTertiary,
             )),
           ],
