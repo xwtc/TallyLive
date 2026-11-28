@@ -65,7 +65,9 @@ class _StreamerCardState extends State<StreamerCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildCover(streamer, dimmed),
-              _buildMeta(streamer, dimmed),
+              // 用 Expanded 吃掉剩余高度：网格单元比内容矮时（窄窗口/测试环境）
+              // 也不会抛 RenderFlex overflow，只是信息区被裁掉一点。
+              Expanded(child: _buildMeta(streamer, dimmed)),
             ],
           ),
         ),
@@ -174,7 +176,10 @@ class _StreamerCardState extends State<StreamerCard> {
   Widget _buildMeta(Streamer streamer, bool dimmed) {
     return Container(
       padding: TallySize.cardMetaPadding,
+      alignment: Alignment.topLeft,
+      clipBehavior: Clip.hardEdge,
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AvatarBox(

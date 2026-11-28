@@ -424,7 +424,7 @@ class _LivePageState extends State<LivePage> {
         maxCrossAxisExtent: TallySize.cardMin,
         mainAxisSpacing: TallySize.gridGap,
         crossAxisSpacing: TallySize.gridGap,
-        childAspectRatio: 0.78,
+        childAspectRatio: 0.72,
       ),
       itemCount: 8,
       itemBuilder: (_, __) => const SkeletonCard(),
@@ -469,7 +469,7 @@ class _LivePageState extends State<LivePage> {
                       maxCrossAxisExtent: 320,
                       mainAxisSpacing: TallySpace.lg,
                       crossAxisSpacing: TallySpace.md,
-                      childAspectRatio: 1.32,
+                      childAspectRatio: 0.72,
                     ),
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
