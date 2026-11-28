@@ -106,7 +106,7 @@ class _LoginSheetState extends State<LoginSheet> {
 
       if (result.status == QrLoginStatus.success) {
         _pollTimer?.cancel();
-        AccountStore.instance.setCookie(widget.platform, result.cookie);
+        await AccountStore.instance.setCookie(widget.platform, result.cookie);
         setState(() {
           _status = '登录成功';
           _success = AccountProfile(loggedIn: true);
@@ -144,7 +144,7 @@ class _LoginSheetState extends State<LoginSheet> {
         });
         return;
       }
-      AccountStore.instance.setCookie(widget.platform, raw);
+      await AccountStore.instance.setCookie(widget.platform, raw, userName: profile.userName);
       setState(() {
         _verifying = false;
         _success = profile;
@@ -160,7 +160,7 @@ class _LoginSheetState extends State<LoginSheet> {
         });
         return;
       }
-      AccountStore.instance.setCookie(widget.platform, raw);
+      await AccountStore.instance.setCookie(widget.platform, raw, userName: profile.userName);
       setState(() {
         _verifying = false;
         _success = profile;

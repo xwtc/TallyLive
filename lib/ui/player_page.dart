@@ -16,6 +16,7 @@ import 'package:tallylive/core/player_session.dart';
 import 'package:tallylive/core/settings.dart';
 import 'package:tallylive/platforms/danmaku_factory.dart';
 import 'package:tallylive/ui/components/atoms.dart';
+import 'package:tallylive/ui/components/block_words_sheet.dart';
 import 'package:tallylive/ui/components/danmu_panel.dart';
 import 'package:tallylive/ui/components/login_sheet.dart';
 import 'package:tallylive/ui/danmaku_overlay.dart';
@@ -781,6 +782,7 @@ class _PlayerPageState extends State<PlayerPage> {
       return const SizedBox.shrink();
     }
     final loggedIn = AccountStore.instance.hasCookie(platform);
+    final accountName = AccountStore.instance.nameOf(platform);
     return GestureDetector(
       onTap: () => _openLogin(platform),
       child: MouseRegion(
@@ -802,7 +804,9 @@ class _PlayerPageState extends State<PlayerPage> {
               ),
               const SizedBox(width: 3),
               Text(
-                loggedIn ? '已登录' : '扫码登录',
+                loggedIn
+                    ? (accountName.isEmpty ? '已登录' : accountName)
+                    : '扫码登录',
                 style: const TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
@@ -1130,22 +1134,35 @@ class DanmakuSettingsSheet extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: TallySpace.sm),
-                TextFormField(
-                  initialValue: settings.danmakuBlocked,
-                  style: TallyType.subtitle
-                      .copyWith(color: TallyColors.textPrimary),
-                  onChanged: settings.setDanmakuBlocked,
-                  decoration: InputDecoration(
-                    labelText: '屏蔽词（逗号或换行分隔）',
-                    labelStyle: TallyType.meta,
-                    hintText: '例如：抽奖, 加群',
-                    hintStyle: TallyType.meta,
-                    filled: true,
-                    fillColor: TallyColors.inset,
-                    isDense: true,
-                    border: OutlineInputBorder(
+                // 屏蔽词改成独立面板入口（对齐 DTV 的 DanmuBlockControl：
+                // 输入→回车/点添加 变标签，可单个删除、可清空）
+                InkWell(
+                  onTap: () => _openBlockWords(context),
+                  borderRadius: BorderRadius.circular(TallyRadius.card),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: TallyColors.inset,
                       borderRadius: BorderRadius.circular(TallyRadius.card),
-                      borderSide: BorderSide.none,
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.filter_alt_outlined,
+                            size: 15, color: TallyColors.textTertiary),
+                        const SizedBox(width: 8),
+                        const Text('弹幕屏蔽', style: TallyType.subtitle),
+                        const Spacer(),
+                        Text(
+                          settings.danmakuBlockedList.isEmpty
+                              ? '未设置'
+                              : '${settings.danmakuBlockedList.length} 个关键词',
+                          style: TallyType.tiny,
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.chevron_right,
+                            size: 16, color: TallyColors.textTertiary),
+                      ],
                     ),
                   ),
                 ),
@@ -1156,6 +1173,19 @@ class DanmakuSettingsSheet extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 打开弹幕屏蔽面板（对齐 DTV 的 DanmuBlockControl 弹层）。
+Future<void> _openBlockWords(BuildContext context) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: TallyColors.raised,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+    ),
+    builder: (_) => const BlockWordsSheet(),
+  );
 }
 
 class _SettingSlider extends StatelessWidget {

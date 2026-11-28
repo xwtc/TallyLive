@@ -1,3 +1,5 @@
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'package:tallylive/core/http.dart';
 import 'package:tallylive/core/models.dart';
 
@@ -126,30 +128,67 @@ class CookieLogin {
 }
 
 /// 已登录账号的本地存储（每个平台一份 Cookie）。
+///
+/// **必须落盘**：之前只存内存，重启应用后登录态就丢了。
+/// Cookie 存 SharedPreferences（键 `account_cookie_<platform>`），
+/// 启动时在 `main()` 里 await 一次 [load]。
 class AccountStore {
   AccountStore._();
 
   static final AccountStore instance = AccountStore._();
 
+  static const String _kCookiePrefix = 'account_cookie_';
+  static const String _kNamePrefix = 'account_name_';
+
   final Map<LivePlatform, String> _cookies = {};
+  final Map<LivePlatform, String> _names = {};
+
+  /// 从本地读回所有平台的登录态。首帧之前调用。
+  Future<void> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final platform in LivePlatform.values) {
+      final cookie = prefs.getString('$_kCookiePrefix${platform.name}') ?? '';
+      if (cookie.isNotEmpty) _cookies[platform] = cookie;
+      final name = prefs.getString('$_kNamePrefix${platform.name}') ?? '';
+      if (name.isNotEmpty) _names[platform] = name;
+    }
+  }
 
   String cookieOf(LivePlatform platform) => _cookies[platform] ?? '';
   bool hasCookie(LivePlatform platform) => cookieOf(platform).isNotEmpty;
 
-  void setCookie(LivePlatform platform, String cookie) {
+  /// 登录用户名（没存过就是空串）。
+  String nameOf(LivePlatform platform) => _names[platform] ?? '';
+
+  Future<void> setCookie(
+    LivePlatform platform,
+    String cookie, {
+    String userName = '',
+  }) async {
     final normalized = CookieLogin.normalize(cookie);
+    final prefs = await SharedPreferences.getInstance();
     if (normalized.isEmpty) {
       _cookies.remove(platform);
-    } else {
-      _cookies[platform] = normalized;
+      await prefs.remove('$_kCookiePrefix${platform.name}');
+      return;
+    }
+    _cookies[platform] = normalized;
+    await prefs.setString('$_kCookiePrefix${platform.name}', normalized);
+    if (userName.isNotEmpty) {
+      _names[platform] = userName;
+      await prefs.setString('$_kNamePrefix${platform.name}', userName);
     }
   }
 
   /// 退出登录：**同时清 Cookie 与请求头**。
   ///
   /// DTV 注释里专门记过「假退出」的坑：只清自己的字段不清客户端，
-  /// 请求还带着旧登录态。
-  void logout(LivePlatform platform) {
+  /// 请求还带着旧登录态。这里把落盘的也一起删掉。
+  Future<void> logout(LivePlatform platform) async {
     _cookies.remove(platform);
+    _names.remove(platform);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('$_kCookiePrefix${platform.name}');
+    await prefs.remove('$_kNamePrefix${platform.name}');
   }
 }

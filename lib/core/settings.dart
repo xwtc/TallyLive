@@ -235,6 +235,38 @@ class AppSettings extends ChangeNotifier {
     await _save();
   }
 
+  /// 屏蔽词上限（对齐 DTV 的 `DANMU_BLOCK_MAX_KEYWORDS = 40`）。
+  static const int maxBlockedKeywords = 40;
+
+  /// 单个屏蔽词长度上限（对齐 DTV 的 `DANMU_BLOCK_MAX_LENGTH = 40`）。
+  static const int maxBlockedKeywordLength = 40;
+
+  /// 追加一个屏蔽词（去重、限长、限量）。返回是否真的加进去了。
+  Future<bool> addBlockedWord(String raw) async {
+    final word = raw.trim();
+    if (word.isEmpty) return false;
+    final clipped = word.length > maxBlockedKeywordLength
+        ? word.substring(0, maxBlockedKeywordLength)
+        : word;
+    final list = danmakuBlockedList;
+    if (list.contains(clipped)) return false;
+    if (list.length >= maxBlockedKeywords) return false;
+    // 用换行作为落盘分隔符（与 setDanmakuBlocked 的解析规则一致）
+    await setDanmakuBlocked([...list, clipped].join('\n'));
+    return true;
+  }
+
+  /// 删除一个屏蔽词。
+  Future<void> removeBlockedWord(String word) async {
+    final list = danmakuBlockedList.where((item) => item != word).toList();
+    await setDanmakuBlocked(list.join('\n'));
+  }
+
+  /// 清空全部屏蔽词。
+  Future<void> clearBlockedWords() async {
+    await setDanmakuBlocked('');
+  }
+
   /// 记录一次打开，去重后置顶。
   Future<void> addRecentRoom(LivePlatform platform, String roomId) async {
     final trimmed = roomId.trim();

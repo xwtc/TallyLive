@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:tallylive/core/account.dart';
 import 'package:tallylive/core/follows.dart';
 import 'package:tallylive/core/settings.dart';
 import 'package:tallylive/ui/shell/app_shell.dart';
@@ -33,6 +34,8 @@ Future<void> main() async {
   // 设置与关注列表要在首帧之前读完，避免界面闪一下默认值。
   await AppSettings.instance.load();
   await FollowStore.instance.load();
+  // 登录态也要在首帧前读回来，否则重启后顶栏会显示未登录
+  await AccountStore.instance.load();
   runApp(const TallyApp());
 }
 
